@@ -1,0 +1,24 @@
+{
+  "name": "Bagdi Quarter Food Manager",
+  "short_name": "Quarter Food",
+  "description": "কোয়ার্টার খাবার বুকিং এবং বিতরণ ব্যবস্থাপনা সিস্টেম।",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#ea580c",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=192&h=192&q=80",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=512&h=512&q=80",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

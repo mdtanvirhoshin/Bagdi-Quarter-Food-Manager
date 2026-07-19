@@ -1,0 +1,6 @@
+{
+  "name": "Bagdi Quarter Food Manager",
+  "description": "A comprehensive digital quarter food management system featuring registration verification, room-locked meal demands, automated distribution tracking, live admin chat, and reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
