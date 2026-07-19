@@ -664,6 +664,15 @@ export default function App() {
     pushActivityLog('Demand Deleted', `Admin deleted meal demand record.`, 'Admin');
   };
 
+  const handleDeleteAllRejectedDemands = () => {
+    setDemands((prev) => {
+      const updated = prev.filter((d) => d.status !== 'rejected');
+      setTimeout(() => saveToStorage('demands_db', updated), 0);
+      return updated;
+    });
+    pushActivityLog('Rejected Demands Cleared', `Admin deleted all rejected meal demands.`, 'Admin');
+  };
+
   const handleAddFoodMenuItem = (img: string, titleBn: string, titleEn: string, descBn: string, descEn: string) => {
     const newItem: FoodMenuItem = {
       id: `food-${Date.now()}`,
@@ -873,6 +882,7 @@ export default function App() {
                 onDeletePreloadStaff={handleDeletePreloadStaff}
                 onDeleteDemandsByDateAndMeal={handleDeleteDemandsByDateAndMeal}
                 onDeleteDemand={handleDeleteDemand}
+                onDeleteAllRejectedDemands={handleDeleteAllRejectedDemands}
                 onSendChatMessage={handleSendChatMessage}
                 onToggleBypassTime={handleToggleBypassTime}
                 onUpdateAdminCredentials={handleUpdateAdminCredentials}

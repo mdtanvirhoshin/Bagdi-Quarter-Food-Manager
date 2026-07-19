@@ -49,6 +49,7 @@ interface AdminPanelProps {
   onDeletePreloadStaff: (id: string) => void;
   onDeleteDemandsByDateAndMeal?: (date: string, mealType: MealType) => void;
   onDeleteDemand?: (demandId: string) => void;
+  onDeleteAllRejectedDemands?: () => void;
   onSendChatMessage: (text: string, receiverId: string) => void;
   onToggleBypassTime: () => void;
   onUpdateAdminCredentials: (user: string, pass: string) => void;
@@ -91,6 +92,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onDeletePreloadStaff,
   onDeleteDemandsByDateAndMeal,
   onDeleteDemand,
+  onDeleteAllRejectedDemands,
   onSendChatMessage,
   onToggleBypassTime,
   onUpdateAdminCredentials,
@@ -2367,12 +2369,38 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </p>
                 </div>
 
-                {/* Direct totals indicator */}
-                <div className="flex items-center gap-2 bg-emerald-50/50 border border-emerald-100 px-3.5 py-2 rounded-2xl">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-xs font-bold text-slate-700">
-                    {lang === 'bn' ? `মোট রেকর্ড: ${demands.length} টি` : `Total Demands: ${demands.length}`}
-                  </span>
+                {/* Direct totals indicator & Delete All Rejected Button */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-2 bg-emerald-50/50 border border-emerald-100 px-3.5 py-2 rounded-2xl">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-xs font-bold text-slate-700">
+                      {lang === 'bn' ? `মোট রেকর্ড: ${demands.length} টি` : `Total Demands: ${demands.length}`}
+                    </span>
+                  </div>
+
+                  {demands.some(d => d.status === 'rejected') && onDeleteAllRejectedDemands && (
+                    <button
+                      onClick={() => {
+                        const rejectedCount = demands.filter(d => d.status === 'rejected').length;
+                        if (window.confirm(lang === 'bn' 
+                          ? `আপনি কি নিশ্চিতভাবে সকল ${rejectedCount} টি বাতিলকৃত (Rejected) ডিমান্ড স্থায়ীভাবে ডিলিট করতে চান?` 
+                          : `Are you sure you want to permanently delete all ${rejectedCount} rejected meal demands?`)) {
+                          onDeleteAllRejectedDemands();
+                          showToast(
+                            lang === 'bn' 
+                              ? 'সকল বাতিলকৃত ডিমান্ড ডিলিট করা হয়েছে!' 
+                              : 'All rejected demands deleted successfully!',
+                            'success'
+                          );
+                        }
+                      }}
+                      className="bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs px-3.5 py-2 rounded-2xl transition shadow-sm hover:shadow active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                      title={lang === 'bn' ? 'সকল বাতিলকৃত ডিমান্ড মুছুন' : 'Delete All Rejected Demands'}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>{lang === 'bn' ? 'সকল বাতিলকৃত ডিমান্ড মুছুন' : 'Delete All Rejected'}</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -2640,10 +2668,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       )}
 
                                       {/* Reset to Pending Option */}
-                                      {(item.status === 'served' || item.status === 'rejected') && (
+                                      {item.status === 'served' && (
                                         <span className="text-[10px] font-bold text-slate-400 italic">
                                           {lang === 'bn' ? 'সম্পন্ন' : 'Finalized'}
                                         </span>
+                                      )}
+                                      {item.status === 'rejected' && (
+                                        <div className="flex flex-col sm:flex-row items-center gap-1.5">
+                                          <span className="text-[10px] font-bold text-slate-400 italic">
+                                            {lang === 'bn' ? 'সম্পন্ন' : 'Finalized'}
+                                          </span>
+                                          {onDeleteDemand && (
+                                            <button
+                                              onClick={() => {
+                                                if (window.confirm(lang === 'bn' ? 'আপনি কি নিশ্চিতভাবে এই বাতিলকৃত ডিমান্ডটি ডিলিট করতে চান?' : 'Are you sure you want to delete this rejected demand?')) {
+                                                  onDeleteDemand(item.id);
+                                                  showToast(
+                                                    lang === 'bn' ? 'ডিমান্ড ডিলিট করা হয়েছে!' : 'Demand deleted successfully!',
+                                                    'info'
+                                                  );
+                                                }
+                                              }}
+                                              className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-extrabold text-[9px] px-2 py-0.5 rounded-lg transition active:scale-95 flex items-center gap-0.5 cursor-pointer shadow-sm"
+                                              title={lang === 'bn' ? 'মুছে ফেলুন' : 'Delete'}
+                                            >
+                                              <Trash2 className="w-2.5 h-2.5 text-rose-500" />
+                                              <span>{lang === 'bn' ? 'মুছুন' : 'Delete'}</span>
+                                            </button>
+                                          )}
+                                        </div>
                                       )}
                                     </div>
                                   </td>
