@@ -621,7 +621,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   return (
-    <div className="grid grid-cols-12 gap-6 animate-in fade-in duration-300" id="admin-panel-container">
+    <div className="grid grid-cols-12 gap-4 sm:gap-6 px-4 sm:px-0 animate-in fade-in duration-300" id="admin-panel-container">
       {/* Premium Header with Hamburger / Dots Menu */}
       <div className="col-span-12 bg-white border border-slate-100 rounded-3xl p-4 shadow-sm flex items-center justify-between gap-4" id="admin-top-navbar">
         <div className="flex items-center gap-3">

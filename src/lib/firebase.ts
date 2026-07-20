@@ -39,11 +39,18 @@ const lastSyncedDocCache: Record<string, Record<string, string>> = {};
  */
 export async function checkAndSeedDatabase(initialDataMap: Record<string, any[]>) {
   try {
+    // Check local cache first for instant bypass
+    if (localStorage.getItem('db_seeded') === 'true') {
+      console.log('Firebase Database already seeded (cached).');
+      return;
+    }
+
     const metaDocRef = doc(db, 'metadata', 'seeded');
     const metaDoc = await getDoc(metaDocRef);
 
     if (metaDoc.exists() && metaDoc.data()?.seeded) {
-      console.log('Firebase Database already seeded.');
+      console.log('Firebase Database already seeded (fetched).');
+      localStorage.setItem('db_seeded', 'true');
       return;
     }
 
@@ -66,6 +73,7 @@ export async function checkAndSeedDatabase(initialDataMap: Record<string, any[]>
     // Set seeded flag
     batch.set(metaDocRef, { seeded: true, timestamp: new Date().toISOString() });
     await batch.commit();
+    localStorage.setItem('db_seeded', 'true');
     console.log('Firebase Database seeding completed successfully.');
   } catch (error) {
     console.error('Error seeding Firebase database:', error);

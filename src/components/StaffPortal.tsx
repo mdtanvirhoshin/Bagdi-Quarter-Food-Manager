@@ -395,7 +395,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
   // RENDER PENDING APPROVAL VIEW
   if (currentUser && currentUser.status === 'pending') {
     return (
-      <div className="w-full max-w-md sm:max-w-xl md:max-w-2xl mx-auto my-12 bg-white/95 backdrop-blur border border-orange-100 rounded-3xl shadow-2xl p-8 sm:p-10 text-center transition-all duration-300" id="pending-approval-card">
+      <div className="w-full max-w-md sm:max-w-xl md:max-w-2xl mx-auto my-0 sm:my-12 bg-white sm:bg-white/95 backdrop-blur-none sm:backdrop-blur border-0 sm:border border-orange-100 rounded-none sm:rounded-3xl shadow-none sm:shadow-2xl p-6 sm:p-10 text-center transition-all duration-300 min-h-[calc(100vh-80px)] sm:min-h-0 flex flex-col justify-center" id="pending-approval-card">
         <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-6 border border-amber-100 shadow-inner">
           <Clock className="w-10 h-10 text-amber-500 animate-pulse" />
         </div>
@@ -424,7 +424,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
   // RENDER BLOCKED VIEW
   if (currentUser && currentUser.status === 'blocked') {
     return (
-      <div className="w-full max-w-md sm:max-w-xl md:max-w-2xl mx-auto my-12 bg-white/95 backdrop-blur border border-rose-100 rounded-3xl shadow-2xl p-8 sm:p-10 text-center transition-all duration-300" id="blocked-account-card">
+      <div className="w-full max-w-md sm:max-w-xl md:max-w-2xl mx-auto my-0 sm:my-12 bg-white sm:bg-white/95 backdrop-blur-none sm:backdrop-blur border-0 sm:border border-rose-100 rounded-none sm:rounded-3xl shadow-none sm:shadow-2xl p-6 sm:p-10 text-center transition-all duration-300 min-h-[calc(100vh-80px)] sm:min-h-0 flex flex-col justify-center" id="blocked-account-card">
         <div className="w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-6 border border-rose-100">
           <ShieldAlert className="w-10 h-10 text-rose-500" />
         </div>
@@ -447,7 +447,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
   // RENDER AUTHENTICATION FORMS (LOGIN / REGISTER WITH FOOD EMBELLISHMENTS)
   if (!currentUser) {
     return (
-      <div className="w-full max-w-md sm:max-w-xl md:max-w-2xl mx-auto my-6 bg-white/95 backdrop-blur border border-orange-100 rounded-3xl shadow-2xl overflow-hidden transition-all duration-300" id="staff-auth-container">
+      <div className="w-full max-w-md sm:max-w-xl md:max-w-2xl mx-auto my-0 sm:my-6 bg-white sm:bg-white/95 backdrop-blur-none sm:backdrop-blur border-0 sm:border border-orange-100 rounded-none sm:rounded-3xl shadow-none sm:shadow-2xl overflow-hidden transition-all duration-300 min-h-[calc(100vh-80px)] sm:min-h-0" id="staff-auth-container">
         {/* Decorative App Header for Food Vibe */}
         <div className="bg-gradient-to-r from-orange-600 via-amber-500 to-orange-500 text-white p-8 sm:p-10 text-center space-y-3 shadow-md">
           <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/20 backdrop-blur mx-auto flex items-center justify-center shadow-inner transition-transform duration-300 hover:scale-105">
@@ -756,7 +756,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
 
   // RENDER STAFF PORTAL DASHBOARD (AFTER SUCCESSFUL LOGIN)
   return (
-    <div className="space-y-4" id="staff-dashboard">
+    <div className="space-y-4 px-4 sm:px-0" id="staff-dashboard">
       {/* Premium Food-Themed Welcome Banner */}
       <div className="bg-gradient-to-br from-orange-600 via-amber-500 to-orange-500 rounded-2xl p-4 sm:p-5 text-white shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden border border-white/10">
         {/* Glow backdrop circles */}

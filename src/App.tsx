@@ -46,7 +46,15 @@ export default function App() {
   const [bypassTimeControls, setBypassTimeControls] = useState(true);
 
   // Active View Mode: 'staff' | 'admin'
-  const [viewMode, setViewMode] = useState<'staff' | 'admin'>('staff');
+  const [viewMode, setViewModeState] = useState<'staff' | 'admin'>(() => {
+    const saved = localStorage.getItem('view_mode');
+    return (saved === 'admin' || saved === 'staff') ? saved : 'staff';
+  });
+
+  const setViewMode = (mode: 'staff' | 'admin') => {
+    setViewModeState(mode);
+    localStorage.setItem('view_mode', mode);
+  };
 
   // Session login state
   const [loggedInUser, setLoggedInUser] = useState<User | null>(null);
@@ -61,11 +69,14 @@ export default function App() {
   useEffect(() => {
     function getOrSet<T>(key: string, initial: T): T {
       const stored = localStorage.getItem(key);
-      if (stored) {
+      if (stored && stored !== 'undefined') {
         try {
-          return JSON.parse(stored) as T;
+          const parsed = JSON.parse(stored);
+          if (parsed !== null && parsed !== undefined) {
+            return parsed as T;
+          }
         } catch (e) {
-          console.error(e);
+          console.error(`Error parsing localStorage key "${key}":`, e);
         }
       }
       localStorage.setItem(key, JSON.stringify(initial));
@@ -101,6 +112,25 @@ export default function App() {
     const savedBypass = localStorage.getItem('bypass_time');
     if (savedBypass !== null) {
       setBypassTimeControls(savedBypass === 'true');
+    }
+
+    // Restore active user session for instant loading
+    const savedUser = localStorage.getItem('logged_in_user');
+    if (savedUser) {
+      try {
+        const parsed = JSON.parse(savedUser);
+        if (parsed) {
+          setLoggedInUser(parsed);
+        }
+      } catch (e) {
+        console.error('Error restoring logged_in_user session:', e);
+      }
+    }
+
+    // Restore admin session
+    const savedAdminLogged = localStorage.getItem('admin_is_logged_in') === 'true';
+    if (savedAdminLogged) {
+      setAdminIsLoggedIn(true);
     }
 
     // Now, run Firebase seed check and listeners
@@ -406,6 +436,7 @@ export default function App() {
 
   const handleLoginUser = (user: User) => {
     setLoggedInUser(user);
+    localStorage.setItem('logged_in_user', JSON.stringify(user));
     pushActivityLog('Staff Login', `${user.name} logged into Staff Portal.`, user.name);
   };
 
@@ -414,6 +445,7 @@ export default function App() {
       pushActivityLog('Staff Logout', `${loggedInUser.name} logged out.`, loggedInUser.name);
     }
     setLoggedInUser(null);
+    localStorage.removeItem('logged_in_user');
   };
 
   const handleSubmitDemand = (mealType: MealType, selectedStaffIds: string[]) => {
@@ -981,6 +1013,7 @@ export default function App() {
     e.preventDefault();
     if (adminLoginInput.trim() === adminUser && adminPassInput === adminPass) {
       setAdminIsLoggedIn(true);
+      localStorage.setItem('admin_is_logged_in', 'true');
       setAdminLoginError('');
       setAdminLoginInput('');
       setAdminPassInput('');
@@ -992,6 +1025,7 @@ export default function App() {
 
   const handleAdminLogout = () => {
     setAdminIsLoggedIn(false);
+    localStorage.removeItem('admin_is_logged_in');
     pushActivityLog('Admin Logout', 'Logged out from Admin Hub.', 'Admin');
   };
 
@@ -1057,7 +1091,7 @@ export default function App() {
       </header>
 
       {/* 2. BODY CONTENT SECTION */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
+      <main className="max-w-7xl mx-auto px-0 sm:px-6 lg:px-8 mt-0 sm:mt-6">
         
         {/* VIEW 1: STAFF PORTAL VIEW */}
         {viewMode === 'staff' && (
@@ -1132,7 +1166,7 @@ export default function App() {
               />
             ) : (
               // Admin Login Screen
-              <div className="w-full max-w-lg sm:max-w-xl mx-auto my-12 bg-white rounded-3xl border border-slate-100 shadow-xl overflow-hidden" id="admin-login-view">
+              <div className="w-full max-w-lg sm:max-w-xl mx-auto my-0 sm:my-12 bg-white rounded-none sm:rounded-3xl border-0 sm:border border-slate-100 shadow-none sm:shadow-xl overflow-hidden min-h-[calc(100vh-80px)] sm:min-h-0" id="admin-login-view">
                 <div className="bg-indigo-600 p-6 text-white text-center">
                   <div className="w-12 h-12 bg-white/15 rounded-full flex items-center justify-center mx-auto mb-3">
                     <Shield className="w-6 h-6 text-white" />
