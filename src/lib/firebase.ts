@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { 
+  getFirestore,
   initializeFirestore, 
   persistentLocalCache, 
   persistentMultipleTabManager,
@@ -14,24 +15,37 @@ import {
   getDocs
 } from 'firebase/firestore';
 
-// Firebase configuration from firebase-applet-config.json
+// Firebase configuration from environment variables with fallback to firebase-applet-config.json
 const firebaseConfig = {
-  apiKey: "AIzaSyCbz3aA7EFA-eBbuTAZ4jvpN-Q8ya5usro",
-  authDomain: "ai-studio-applet-webapp-9ef67.firebaseapp.com",
-  projectId: "ai-studio-applet-webapp-9ef67",
-  storageBucket: "ai-studio-applet-webapp-9ef67.firebasestorage.app",
-  messagingSenderId: "29723173919",
-  appId: "1:29723173919:web:9f28295fe6fd081b99e12a"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyCbz3aA7EFA-eBbuTAZ4jvpN-Q8ya5usro",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "ai-studio-applet-webapp-9ef67.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "ai-studio-applet-webapp-9ef67",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "ai-studio-applet-webapp-9ef67.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "29723173919",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:29723173919:web:9f28295fe6fd081b99e12a"
 };
 
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore with custom database ID and multi-tab persistent cache for offline capability
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager()
-  })
-}, "ai-studio-bagdiquarterfood-fdd053aa-42dc-4fde-a83d-58e60580b941");
+// Initialize Firestore with custom database ID and multi-tab persistent cache for offline capability, with robust fallbacks
+let firestoreDb;
+try {
+  firestoreDb = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    })
+  }, "ai-studio-bagdiquarterfood-fdd053aa-42dc-4fde-a83d-58e60580b941");
+} catch (e) {
+  console.warn("Failed to initialize Firestore with multi-tab persistent local cache, trying basic initialization:", e);
+  try {
+    firestoreDb = initializeFirestore(app, {}, "ai-studio-bagdiquarterfood-fdd053aa-42dc-4fde-a83d-58e60580b941");
+  } catch (e2) {
+    console.error("Failed to initialize Firestore with custom database ID, falling back to default:", e2);
+    firestoreDb = getFirestore(app);
+  }
+}
+
+export const db = firestoreDb;
 
 // Track last known lengths to avoid unnecessary getDocs calls during insertion/updates
 const lastKnownLengths: Record<string, number> = {};
@@ -155,14 +169,18 @@ export async function syncArrayToFirestore(key: string, data: any[]) {
       }
     }
 
-    // 2. Delete removed items
-    const activeIds = new Set(data.filter(item => item && item.id).map(item => String(item.id)));
-    for (const cachedId of Object.keys(cache)) {
-      if (!activeIds.has(cachedId)) {
-        const docRef = doc(db, key, cachedId);
-        batch.delete(docRef);
-        delete cache[cachedId]; // Remove from cache
-        writeCount++;
+    // 2. Delete removed items (Safe guard: Never automatically batch-delete users or demands during array-sync,
+    // as it can easily wipe out data due to local storage and Firestore sync lags.
+    // Explicit deletions should be processed directly).
+    if (key !== 'users_db' && key !== 'demands_db') {
+      const activeIds = new Set(data.filter(item => item && item.id).map(item => String(item.id)));
+      for (const cachedId of Object.keys(cache)) {
+        if (!activeIds.has(cachedId)) {
+          const docRef = doc(db, key, cachedId);
+          batch.delete(docRef);
+          delete cache[cachedId]; // Remove from cache
+          writeCount++;
+        }
       }
     }
 
@@ -192,5 +210,22 @@ export async function syncArrayToFirestore(key: string, data: any[]) {
     } catch (innerError) {
       console.error(`Individual save fallback failed for ${key}:`, innerError);
     }
+  }
+}
+
+/**
+ * Explicitly deletes a document from Firestore.
+ */
+export async function deleteDocFromFirestore(key: string, id: string) {
+  try {
+    const docRef = doc(db, key, String(id));
+    await deleteDoc(docRef);
+    console.log(`Successfully deleted document ${id} from Firestore collection: ${key}`);
+    // Also remove from cache if exists
+    if (lastSyncedDocCache[key]) {
+      delete lastSyncedDocCache[key][String(id)];
+    }
+  } catch (error) {
+    console.error(`Error deleting document ${id} from Firestore:`, error);
   }
 }

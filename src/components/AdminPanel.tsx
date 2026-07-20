@@ -36,6 +36,7 @@ interface AdminPanelProps {
   onToggleHideFoodMenuItem: (id: string) => void;
   onApproveUser: (userId: string) => void;
   onRejectUser: (userId: string) => void;
+  onDeleteUser?: (userId: string) => void;
   onBlockUser: (userId: string) => void;
   onUnblockUser: (userId: string) => void;
   onUpdateUserRoom?: (userId: string, newRoomNumber: string) => void;
@@ -79,6 +80,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onToggleHideFoodMenuItem,
   onApproveUser,
   onRejectUser,
+  onDeleteUser,
   onBlockUser,
   onUnblockUser,
   onUpdateUserRoom,
@@ -1799,6 +1801,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                         {/* Action buttons (Block/Unblock) */}
                         <div className="pt-2 border-t border-orange-50/30 flex justify-end gap-2">
+                          {onDeleteUser && (
+                            <button
+                              onClick={() => {
+                                if (window.confirm(lang === 'bn' 
+                                  ? `আপনি কি নিশ্চিতভাবে ${u.name}-এর অ্যাকাউন্টটি সম্পূর্ণ ডিলিট করতে চান?` 
+                                  : `Are you sure you want to permanently delete the account of ${u.name}?`)) {
+                                  onDeleteUser(u.id);
+                                  showToast(
+                                    lang === 'bn' ? 'অ্যাকাউন্টটি ডিলিট করা হয়েছে!' : 'Account deleted successfully!',
+                                    'info'
+                                  );
+                                }
+                              }}
+                              className="bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 hover:border-rose-200 text-xs px-3 py-1.5 rounded-xl font-bold transition cursor-pointer flex items-center gap-1 shadow-sm"
+                              title={lang === 'bn' ? 'অ্যাকাউন্ট ডিলিট করুন' : 'Delete Account'}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>{lang === 'bn' ? 'মুছুন' : 'Delete'}</span>
+                            </button>
+                          )}
                           {u.status === 'approved' ? (
                             <button
                               onClick={() => onBlockUser(u.id)}

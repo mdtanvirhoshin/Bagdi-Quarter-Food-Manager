@@ -14,7 +14,7 @@ import { translations, Language } from './translations';
 import { StaffPortal } from './components/StaffPortal';
 import { AdminPanel } from './components/AdminPanel';
 import { Shield, Users, RefreshCw, Key, AlertCircle, Sparkles } from 'lucide-react';
-import { checkAndSeedDatabase, listenToCollection, syncArrayToFirestore } from './lib/firebase';
+import { checkAndSeedDatabase, listenToCollection, syncArrayToFirestore, deleteDocFromFirestore } from './lib/firebase';
 
 const INITIAL_ROOMS: RoomConfig[] = Array.from({ length: 50 }, (_, i) => ({
   id: `room-${i + 1}`,
@@ -108,18 +108,22 @@ export default function App() {
     let unsubscribes: (() => void)[] = [];
 
     async function initFirebaseSync() {
-      // Seed Firebase if empty, using the actual local storage data as seed value to preserve current changes
-      await checkAndSeedDatabase({
-        preload_db: localPreload,
-        users_db: localUsers,
-        demands_db: localDemands,
-        notices_db: localNotices,
-        chats_db: localChats,
-        times_db: localTimes,
-        logs_db: localLogs,
-        food_menu_db: localMenu,
-        rooms_db: localRooms
-      });
+      try {
+        // Seed Firebase if empty, using the actual local storage data as seed value to preserve current changes
+        await checkAndSeedDatabase({
+          preload_db: localPreload,
+          users_db: localUsers,
+          demands_db: localDemands,
+          notices_db: localNotices,
+          chats_db: localChats,
+          times_db: localTimes,
+          logs_db: localLogs,
+          food_menu_db: localMenu,
+          rooms_db: localRooms
+        });
+      } catch (seedError) {
+        console.error("Firebase seeding failed, continuing to register listeners:", seedError);
+      }
 
       if (!isSubscribed) return;
 
@@ -463,10 +467,29 @@ export default function App() {
       setTimeout(() => saveToStorage('users_db', updated), 0);
       return updated;
     });
+    // Explicitly delete from Firestore
+    deleteDocFromFirestore('users_db', userId);
 
     pushActivityLog(
       'Account Rejected',
       `Admin rejected registration for ${userObj?.name || userId}`,
+      'Admin'
+    );
+  };
+
+  const handleDeleteUser = (userId: string) => {
+    const userObj = users.find((u) => u.id === userId);
+    setUsers((prev) => {
+      const updated = prev.filter((u) => u.id !== userId);
+      setTimeout(() => saveToStorage('users_db', updated), 0);
+      return updated;
+    });
+    // Explicitly delete from Firestore
+    deleteDocFromFirestore('users_db', userId);
+
+    pushActivityLog(
+      'Account Deleted',
+      `Admin deleted registration card/account for ${userObj?.name || userId}`,
       'Admin'
     );
   };
@@ -643,11 +666,17 @@ export default function App() {
   };
 
   const handleDeleteDemandsByDateAndMeal = (date: string, mealType: MealType) => {
+    const targetDemands = demands.filter((d) => d.date === date && d.mealType === mealType);
     setDemands((prev) => {
       const updated = prev.filter((d) => !(d.date === date && d.mealType === mealType));
       setTimeout(() => saveToStorage('demands_db', updated), 0);
       return updated;
     });
+    // Explicitly delete matching demands from Firestore
+    targetDemands.forEach((d) => {
+      deleteDocFromFirestore('demands_db', d.id);
+    });
+
     pushActivityLog(
       'Meal Record Cleared',
       `Admin cleared all ${mealType.toUpperCase()} demands for ${date}`,
@@ -661,15 +690,24 @@ export default function App() {
       setTimeout(() => saveToStorage('demands_db', updated), 0);
       return updated;
     });
+    // Explicitly delete from Firestore
+    deleteDocFromFirestore('demands_db', demandId);
+
     pushActivityLog('Demand Deleted', `Admin deleted meal demand record.`, 'Admin');
   };
 
   const handleDeleteAllRejectedDemands = () => {
+    const rejectedDemands = demands.filter((d) => d.status === 'rejected');
     setDemands((prev) => {
       const updated = prev.filter((d) => d.status !== 'rejected');
       setTimeout(() => saveToStorage('demands_db', updated), 0);
       return updated;
     });
+    // Explicitly delete all rejected demands from Firestore
+    rejectedDemands.forEach((d) => {
+      deleteDocFromFirestore('demands_db', d.id);
+    });
+
     pushActivityLog('Rejected Demands Cleared', `Admin deleted all rejected meal demands.`, 'Admin');
   };
 
@@ -869,6 +907,7 @@ export default function App() {
                 onToggleHideFoodMenuItem={handleToggleHideFoodMenuItem}
                 onApproveUser={handleApproveUser}
                 onRejectUser={handleRejectUser}
+                onDeleteUser={handleDeleteUser}
                 onBlockUser={handleBlockUser}
                 onUnblockUser={handleUnblockUser}
                 onUpdateUserRoom={handleUpdateUserRoom}
