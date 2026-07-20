@@ -1,25 +1,12 @@
-const CACHE_NAME = 'quarter-food-v1';
-const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
-  '/manifest.json'
-];
-
+// Self-destruct Service Worker to clean up old cache issues and restore app functionality
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
-    })
-  );
+  self.skipWaiting();
 });
 
-self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request);
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    self.clients.claim().then(() => {
+      return self.registration.unregister();
     })
   );
 });
