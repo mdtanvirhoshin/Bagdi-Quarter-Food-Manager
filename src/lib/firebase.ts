@@ -1,9 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { 
   getFirestore,
-  initializeFirestore, 
-  persistentLocalCache, 
-  persistentMultipleTabManager,
   collection,
   doc,
   getDoc,
@@ -27,25 +24,8 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore with custom database ID and multi-tab persistent cache for offline capability, with robust fallbacks
-let firestoreDb;
-try {
-  firestoreDb = initializeFirestore(app, {
-    localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager()
-    })
-  }, "ai-studio-bagdiquarterfood-fdd053aa-42dc-4fde-a83d-58e60580b941");
-} catch (e) {
-  console.warn("Failed to initialize Firestore with multi-tab persistent local cache, trying basic initialization:", e);
-  try {
-    firestoreDb = initializeFirestore(app, {}, "ai-studio-bagdiquarterfood-fdd053aa-42dc-4fde-a83d-58e60580b941");
-  } catch (e2) {
-    console.error("Failed to initialize Firestore with custom database ID, falling back to default:", e2);
-    firestoreDb = getFirestore(app);
-  }
-}
-
-export const db = firestoreDb;
+// Initialize Firestore with custom database ID
+export const db = getFirestore(app, "ai-studio-bagdiquarterfood-fdd053aa-42dc-4fde-a83d-58e60580b941");
 
 // Track last known lengths to avoid unnecessary getDocs calls during insertion/updates
 const lastKnownLengths: Record<string, number> = {};
