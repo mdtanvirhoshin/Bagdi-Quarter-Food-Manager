@@ -113,92 +113,56 @@ export default function App() {
       // 1. Establish real-time sync with offline support IMMEDIATELY!
       const unsubPreload = listenToCollection('preload_db', (data) => {
         if (isSubscribed) {
-          const prevStr = localStorage.getItem('preload_db') || '[]';
-          const nextStr = JSON.stringify(data);
-          if (prevStr !== nextStr) {
-            setPreloadedStaff(data);
-            localStorage.setItem('preload_db', nextStr);
-          }
+          setPreloadedStaff(data);
+          localStorage.setItem('preload_db', JSON.stringify(data));
         }
       });
       const unsubUsers = listenToCollection('users_db', (data) => {
         if (isSubscribed) {
-          const prevStr = localStorage.getItem('users_db') || '[]';
-          const nextStr = JSON.stringify(data);
-          if (prevStr !== nextStr) {
-            setUsers(data);
-            localStorage.setItem('users_db', nextStr);
-          }
+          setUsers(data);
+          localStorage.setItem('users_db', JSON.stringify(data));
         }
       });
       const unsubDemands = listenToCollection('demands_db', (data) => {
         if (isSubscribed) {
-          const prevStr = localStorage.getItem('demands_db') || '[]';
-          const nextStr = JSON.stringify(data);
-          if (prevStr !== nextStr) {
-            setDemands(data);
-            localStorage.setItem('demands_db', nextStr);
-          }
+          setDemands(data);
+          localStorage.setItem('demands_db', JSON.stringify(data));
         }
       });
       const unsubNotices = listenToCollection('notices_db', (data) => {
         if (isSubscribed) {
-          const prevStr = localStorage.getItem('notices_db') || '[]';
-          const nextStr = JSON.stringify(data);
-          if (prevStr !== nextStr) {
-            setNotices(data);
-            localStorage.setItem('notices_db', nextStr);
-          }
+          setNotices(data);
+          localStorage.setItem('notices_db', JSON.stringify(data));
         }
       });
       const unsubChats = listenToCollection('chats_db', (data) => {
         if (isSubscribed) {
-          const prevStr = localStorage.getItem('chats_db') || '[]';
-          const nextStr = JSON.stringify(data);
-          if (prevStr !== nextStr) {
-            setChats(data);
-            localStorage.setItem('chats_db', nextStr);
-          }
+          setChats(data);
+          localStorage.setItem('chats_db', JSON.stringify(data));
         }
       });
       const unsubTimes = listenToCollection('times_db', (data) => {
         if (isSubscribed) {
-          const prevStr = localStorage.getItem('times_db') || '[]';
-          const nextStr = JSON.stringify(data);
-          if (prevStr !== nextStr) {
-            setTimeSettings(data);
-            localStorage.setItem('times_db', nextStr);
-          }
+          setTimeSettings(data);
+          localStorage.setItem('times_db', JSON.stringify(data));
         }
       });
       const unsubLogs = listenToCollection('logs_db', (data) => {
         if (isSubscribed) {
-          const prevStr = localStorage.getItem('logs_db') || '[]';
-          const nextStr = JSON.stringify(data);
-          if (prevStr !== nextStr) {
-            setActivityLogs(data);
-            localStorage.setItem('logs_db', nextStr);
-          }
+          setActivityLogs(data);
+          localStorage.setItem('logs_db', JSON.stringify(data));
         }
       });
       const unsubMenu = listenToCollection('food_menu_db', (data) => {
         if (isSubscribed) {
-          const prevStr = localStorage.getItem('food_menu_db') || '[]';
-          const nextStr = JSON.stringify(data);
-          if (prevStr !== nextStr) {
-            setFoodMenu(data);
-            localStorage.setItem('food_menu_db', nextStr);
-          }
+          setFoodMenu(data);
+          localStorage.setItem('food_menu_db', JSON.stringify(data));
         }
       });
       const unsubRooms = listenToCollection('rooms_db', (data) => {
         if (isSubscribed) {
-          const prevStr = localStorage.getItem('rooms_db') || '[]';
-          const nextStr = JSON.stringify(data);
-          if (prevStr !== nextStr) {
-            setRooms(data);
-            localStorage.setItem('rooms_db', nextStr);
-          }
+          setRooms(data);
+          localStorage.setItem('rooms_db', JSON.stringify(data));
         }
       });
 
@@ -248,7 +212,10 @@ export default function App() {
     };
     setActivityLogs((prev) => {
       const updated = [...prev, newLog];
-      setTimeout(() => saveToStorage('logs_db', updated), 0);
+      setTimeout(() => {
+        localStorage.setItem('logs_db', JSON.stringify(updated));
+        saveDocToFirestore('logs_db', newLog);
+      }, 0);
       return updated;
     });
   };
@@ -391,9 +358,12 @@ export default function App() {
   const handleDeleteRoom = (roomId: string) => {
     setRooms((prev) => {
       const updated = prev.filter((r) => r.id !== roomId);
-      setTimeout(() => saveToStorage('rooms_db', updated), 0);
+      setTimeout(() => {
+        localStorage.setItem('rooms_db', JSON.stringify(updated));
+      }, 0);
       return updated;
     });
+    deleteDocFromFirestore('rooms_db', roomId);
     pushActivityLog('Room Deleted', `Admin deleted a room layout.`, 'Admin');
   };
 
@@ -495,7 +465,10 @@ export default function App() {
 
     setChats((prev) => {
       const updated = [...prev, newMessage];
-      setTimeout(() => saveToStorage('chats_db', updated), 0);
+      setTimeout(() => {
+        localStorage.setItem('chats_db', JSON.stringify(updated));
+        saveDocToFirestore('chats_db', newMessage);
+      }, 0);
       return updated;
     });
   };
@@ -557,7 +530,9 @@ export default function App() {
     const userObj = users.find((u) => u.id === userId);
     setUsers((prev) => {
       const updated = prev.filter((u) => u.id !== userId);
-      setTimeout(() => saveToStorage('users_db', updated), 0);
+      setTimeout(() => {
+        localStorage.setItem('users_db', JSON.stringify(updated));
+      }, 0);
       return updated;
     });
     // Explicitly delete from Firestore
@@ -574,7 +549,9 @@ export default function App() {
     const userObj = users.find((u) => u.id === userId);
     setUsers((prev) => {
       const updated = prev.filter((u) => u.id !== userId);
-      setTimeout(() => saveToStorage('users_db', updated), 0);
+      setTimeout(() => {
+        localStorage.setItem('users_db', JSON.stringify(updated));
+      }, 0);
       return updated;
     });
     // Explicitly delete from Firestore
@@ -768,9 +745,21 @@ export default function App() {
   };
 
   const handleAddTimeSetting = (mealType: MealType, startTime: string, endTime: string) => {
+    let updatedSetting: TimeSetting | null = null;
     setTimeSettings((prev) => {
-      const updated = prev.map((s) => (s.mealType === mealType ? { ...s, startTime, endTime } : s));
-      setTimeout(() => saveToStorage('times_db', updated), 0);
+      const updated = prev.map((s) => {
+        if (s.mealType === mealType) {
+          updatedSetting = { ...s, startTime, endTime };
+          return updatedSetting;
+        }
+        return s;
+      });
+      setTimeout(() => {
+        localStorage.setItem('times_db', JSON.stringify(updated));
+        if (updatedSetting) {
+          saveDocToFirestore('times_db', updatedSetting);
+        }
+      }, 0);
       return updated;
     });
     pushActivityLog('Schedule Timer Updated', `${mealType.toUpperCase()} hours modified.`, 'Admin');
@@ -786,7 +775,10 @@ export default function App() {
 
     setNotices((prev) => {
       const updated = [newNotice, ...prev];
-      setTimeout(() => saveToStorage('notices_db', updated), 0);
+      setTimeout(() => {
+        localStorage.setItem('notices_db', JSON.stringify(updated));
+        saveDocToFirestore('notices_db', newNotice);
+      }, 0);
       return updated;
     });
 
@@ -796,24 +788,30 @@ export default function App() {
   const handleDeleteNotice = (noticeId: string) => {
     setNotices((prev) => {
       const updated = prev.filter((n) => n.id !== noticeId);
-      setTimeout(() => saveToStorage('notices_db', updated), 0);
+      setTimeout(() => {
+        localStorage.setItem('notices_db', JSON.stringify(updated));
+      }, 0);
       return updated;
     });
+    deleteDocFromFirestore('notices_db', noticeId);
     pushActivityLog('Notice Removed', 'Admin deleted notice.', 'Admin');
   };
 
   const handleAddPreloadStaff = (staffId: string, name: string, roomNumber: string, department: string) => {
     const newPreload: PreLoadedStaff = {
       id: `preload-${Date.now()}`,
-      staffId,
+      staffId: staffId.trim().toUpperCase(),
       name,
       roomNumber,
-      department
+      department: department || 'General'
     };
 
     setPreloadedStaff((prev) => {
       const updated = [...prev, newPreload];
-      setTimeout(() => saveToStorage('preload_db', updated), 0);
+      setTimeout(() => {
+        localStorage.setItem('preload_db', JSON.stringify(updated));
+        saveDocToFirestore('preload_db', newPreload);
+      }, 0);
       return updated;
     });
 
@@ -823,9 +821,12 @@ export default function App() {
   const handleDeletePreloadStaff = (id: string) => {
     setPreloadedStaff((prev) => {
       const updated = prev.filter((s) => s.id !== id);
-      setTimeout(() => saveToStorage('preload_db', updated), 0);
+      setTimeout(() => {
+        localStorage.setItem('preload_db', JSON.stringify(updated));
+      }, 0);
       return updated;
     });
+    deleteDocFromFirestore('preload_db', id);
     pushActivityLog('Preload Staff Deleted', 'Admin removed code validation record.', 'Admin');
   };
 
@@ -833,7 +834,9 @@ export default function App() {
     const targetDemands = demands.filter((d) => d.date === date && d.mealType === mealType);
     setDemands((prev) => {
       const updated = prev.filter((d) => !(d.date === date && d.mealType === mealType));
-      setTimeout(() => saveToStorage('demands_db', updated), 0);
+      setTimeout(() => {
+        localStorage.setItem('demands_db', JSON.stringify(updated));
+      }, 0);
       return updated;
     });
     // Explicitly delete matching demands from Firestore
@@ -851,7 +854,9 @@ export default function App() {
   const handleDeleteDemand = (demandId: string) => {
     setDemands((prev) => {
       const updated = prev.filter((d) => d.id !== demandId);
-      setTimeout(() => saveToStorage('demands_db', updated), 0);
+      setTimeout(() => {
+        localStorage.setItem('demands_db', JSON.stringify(updated));
+      }, 0);
       return updated;
     });
     // Explicitly delete from Firestore
@@ -864,7 +869,9 @@ export default function App() {
     const rejectedDemands = demands.filter((d) => d.status === 'rejected');
     setDemands((prev) => {
       const updated = prev.filter((d) => d.status !== 'rejected');
-      setTimeout(() => saveToStorage('demands_db', updated), 0);
+      setTimeout(() => {
+        localStorage.setItem('demands_db', JSON.stringify(updated));
+      }, 0);
       return updated;
     });
     // Explicitly delete all rejected demands from Firestore
@@ -887,7 +894,10 @@ export default function App() {
     };
     setFoodMenu((prev) => {
       const updated = [...prev, newItem];
-      setTimeout(() => saveToStorage('food_menu_db', updated), 0);
+      setTimeout(() => {
+        localStorage.setItem('food_menu_db', JSON.stringify(updated));
+        saveDocToFirestore('food_menu_db', newItem);
+      }, 0);
       return updated;
     });
     pushActivityLog('Food Item Added', `Admin added new menu item: ${titleBn}`, 'Admin');
@@ -896,7 +906,10 @@ export default function App() {
   const handleUpdateFoodMenuItem = (updatedItem: FoodMenuItem) => {
     setFoodMenu((prev) => {
       const updated = prev.map((item) => item.id === updatedItem.id ? updatedItem : item);
-      setTimeout(() => saveToStorage('food_menu_db', updated), 0);
+      setTimeout(() => {
+        localStorage.setItem('food_menu_db', JSON.stringify(updated));
+        saveDocToFirestore('food_menu_db', updatedItem);
+      }, 0);
       return updated;
     });
     pushActivityLog('Food Item Updated', `Admin updated menu item: ${updatedItem.titleBn}`, 'Admin');
@@ -907,22 +920,31 @@ export default function App() {
     const title = targetItem ? targetItem.titleBn : id;
     setFoodMenu((prev) => {
       const updated = prev.filter((item) => item.id !== id);
-      setTimeout(() => saveToStorage('food_menu_db', updated), 0);
+      setTimeout(() => {
+        localStorage.setItem('food_menu_db', JSON.stringify(updated));
+      }, 0);
       return updated;
     });
+    deleteDocFromFirestore('food_menu_db', id);
     pushActivityLog('Food Item Deleted', `Admin deleted menu item: ${title}`, 'Admin');
   };
 
   const handleToggleHideFoodMenuItem = (id: string) => {
+    let updatedItem: FoodMenuItem | null = null;
     setFoodMenu((prev) => {
       const updated = prev.map((item) => {
         if (item.id === id) {
-          const newVal = !item.hidden;
-          return { ...item, hidden: newVal };
+          updatedItem = { ...item, hidden: !item.hidden };
+          return updatedItem;
         }
         return item;
       });
-      setTimeout(() => saveToStorage('food_menu_db', updated), 0);
+      setTimeout(() => {
+        localStorage.setItem('food_menu_db', JSON.stringify(updated));
+        if (updatedItem) {
+          saveDocToFirestore('food_menu_db', updatedItem);
+        }
+      }, 0);
       return updated;
     });
     const targetItem = foodMenu.find((item) => item.id === id);

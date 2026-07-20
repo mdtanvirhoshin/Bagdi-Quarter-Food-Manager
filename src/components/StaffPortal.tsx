@@ -326,13 +326,45 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
     );
   };
 
-  // Handle file uploads converting to Base64
+  // Handle file uploads converting to Base64 with high-quality compression to stay under Firestore document limits
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setter(reader.result as string);
+        const rawResult = reader.result as string;
+        // Compress image using Canvas
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          
+          // Downscale to a maximum dimension of 500px (ideal for avatars and verification ID cards)
+          const MAX_DIM = 500;
+          if (width > MAX_DIM || height > MAX_DIM) {
+            if (width > height) {
+              height = Math.round((height * MAX_DIM) / width);
+              width = MAX_DIM;
+            } else {
+              width = Math.round((width * MAX_DIM) / height);
+              height = MAX_DIM;
+            }
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            // Save as jpeg with 0.7 quality for superb space saving and instant syncing
+            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+            setter(compressedBase64);
+          } else {
+            setter(rawResult);
+          }
+        };
+        img.src = rawResult;
       };
       reader.readAsDataURL(file);
     }

@@ -110,7 +110,9 @@ export function listenToCollection(key: string, callback: (data: any[]) => void)
     } else if (key === 'chats_db') {
       items.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     } else if (key === 'demands_db') {
-      items.sort((a, b) => new Date(b.timeSubmitted).getTime() - new Date(a.timeSubmitted).getTime());
+      items.sort((a, b) => new Date(b.timestamp || b.timeSubmitted || 0).getTime() - new Date(a.timestamp || a.timeSubmitted || 0).getTime());
+    } else if (key === 'users_db') {
+      items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
     }
 
     lastKnownLengths[key] = items.length;
