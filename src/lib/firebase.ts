@@ -11,21 +11,22 @@ import {
   query,
   getDocs
 } from 'firebase/firestore';
+import firebaseConfigData from '../../firebase-applet-config.json';
 
 // Firebase configuration from environment variables with fallback to firebase-applet-config.json
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyCbz3aA7EFA-eBbuTAZ4jvpN-Q8ya5usro",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "ai-studio-applet-webapp-9ef67.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "ai-studio-applet-webapp-9ef67",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "ai-studio-applet-webapp-9ef67.firebasestorage.app",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "29723173919",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:29723173919:web:9f28295fe6fd081b99e12a"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfigData.apiKey || "AIzaSyCbz3aA7EFA-eBbuTAZ4jvpN-Q8ya5usro",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfigData.authDomain || "ai-studio-applet-webapp-9ef67.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfigData.projectId || "ai-studio-applet-webapp-9ef67",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfigData.storageBucket || "ai-studio-applet-webapp-9ef67.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfigData.messagingSenderId || "29723173919",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || firebaseConfigData.appId || "1:29723173919:web:9f28295fe6fd081b99e12a"
 };
 
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore with custom database ID
-export const db = getFirestore(app, "ai-studio-bagdiquarterfood-fdd053aa-42dc-4fde-a83d-58e60580b941");
+// Initialize Firestore with custom database ID from config or fallback
+export const db = getFirestore(app, firebaseConfigData.firestoreDatabaseId || "ai-studio-bagdiquarterfood-fdd053aa-42dc-4fde-a83d-58e60580b941");
 
 // Track last known lengths to avoid unnecessary getDocs calls during insertion/updates
 const lastKnownLengths: Record<string, number> = {};
@@ -120,6 +121,54 @@ export function listenToCollection(key: string, callback: (data: any[]) => void)
 }
 
 /**
+ * Manually fetches a collection from Firestore (fail-safe for websocket dropouts)
+ */
+export async function fetchCollection(key: string): Promise<any[]> {
+  try {
+    const colRef = collection(db, key);
+    const snapshot = await getDocs(colRef);
+    const items: any[] = [];
+    const keyCache: Record<string, string> = {};
+
+    snapshot.forEach((doc) => {
+      const val = doc.data();
+      items.push(val);
+      if (val && val.id) {
+        keyCache[String(val.id)] = JSON.stringify(val);
+      }
+    });
+
+    lastSyncedDocCache[key] = keyCache;
+
+    // Sort items to maintain consistent order
+    if (key === 'rooms_db') {
+      items.sort((a, b) => {
+        const strA = String(a.roomNumber || '');
+        const strB = String(b.roomNumber || '');
+        const numA = parseInt(strA, 10);
+        const numB = parseInt(strB, 10);
+        if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+        return strA.localeCompare(strB);
+      });
+    } else if (key === 'preload_db') {
+      items.sort((a, b) => a.name.localeCompare(b.name));
+    } else if (key === 'logs_db') {
+      items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    } else if (key === 'chats_db') {
+      items.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    } else if (key === 'demands_db') {
+      items.sort((a, b) => new Date(b.timeSubmitted || b.timestamp).getTime() - new Date(a.timeSubmitted || a.timestamp).getTime());
+    }
+
+    lastKnownLengths[key] = items.length;
+    return items;
+  } catch (error) {
+    console.error(`Error fetching collection ${key} manually:`, error);
+    throw error;
+  }
+}
+
+/**
  * Saves or updates items in a Firestore collection.
  * It writes documents using item.id as the document ID, and deletes documents not in the array.
  * Uses a local cache comparison to only update actual changes, saving heavy network load.
@@ -207,5 +256,25 @@ export async function deleteDocFromFirestore(key: string, id: string) {
     }
   } catch (error) {
     console.error(`Error deleting document ${id} from Firestore:`, error);
+  }
+}
+
+/**
+ * Saves or updates a single document in Firestore directly.
+ */
+export async function saveDocToFirestore(key: string, item: any) {
+  if (!item || !item.id) return;
+  try {
+    const docRef = doc(db, key, String(item.id));
+    await setDoc(docRef, item);
+    console.log(`Successfully saved single document ${item.id} to Firestore collection: ${key}`);
+    
+    // Update local cache
+    if (!lastSyncedDocCache[key]) {
+      lastSyncedDocCache[key] = {};
+    }
+    lastSyncedDocCache[key][String(item.id)] = JSON.stringify(item);
+  } catch (error) {
+    console.error(`Error saving document ${item.id} to Firestore:`, error);
   }
 }

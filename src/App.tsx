@@ -14,7 +14,7 @@ import { translations, Language } from './translations';
 import { StaffPortal } from './components/StaffPortal';
 import { AdminPanel } from './components/AdminPanel';
 import { Shield, Users, RefreshCw, Key, AlertCircle, Sparkles } from 'lucide-react';
-import { checkAndSeedDatabase, listenToCollection, syncArrayToFirestore, deleteDocFromFirestore } from './lib/firebase';
+import { checkAndSeedDatabase, listenToCollection, syncArrayToFirestore, deleteDocFromFirestore, fetchCollection, saveDocToFirestore } from './lib/firebase';
 
 const INITIAL_ROOMS: RoomConfig[] = Array.from({ length: 50 }, (_, i) => ({
   id: `room-${i + 1}`,
@@ -108,26 +108,9 @@ export default function App() {
     let unsubscribes: (() => void)[] = [];
 
     async function initFirebaseSync() {
-      try {
-        // Seed Firebase if empty, using the actual local storage data as seed value to preserve current changes
-        await checkAndSeedDatabase({
-          preload_db: localPreload,
-          users_db: localUsers,
-          demands_db: localDemands,
-          notices_db: localNotices,
-          chats_db: localChats,
-          times_db: localTimes,
-          logs_db: localLogs,
-          food_menu_db: localMenu,
-          rooms_db: localRooms
-        });
-      } catch (seedError) {
-        console.error("Firebase seeding failed, continuing to register listeners:", seedError);
-      }
-
       if (!isSubscribed) return;
 
-      // Establish real-time sync with offline support
+      // 1. Establish real-time sync with offline support IMMEDIATELY!
       const unsubPreload = listenToCollection('preload_db', (data) => {
         if (isSubscribed) {
           const prevStr = localStorage.getItem('preload_db') || '[]';
@@ -223,6 +206,21 @@ export default function App() {
         unsubPreload, unsubUsers, unsubDemands, unsubNotices,
         unsubChats, unsubTimes, unsubLogs, unsubMenu, unsubRooms
       ];
+
+      // 2. Seed Firebase in the background without blocking the live listeners!
+      checkAndSeedDatabase({
+        preload_db: localPreload,
+        users_db: localUsers,
+        demands_db: localDemands,
+        notices_db: localNotices,
+        chats_db: localChats,
+        times_db: localTimes,
+        logs_db: localLogs,
+        food_menu_db: localMenu,
+        rooms_db: localRooms
+      }).catch((seedError) => {
+        console.error("Firebase background seeding check failed:", seedError);
+      });
     }
 
     initFirebaseSync();
@@ -253,6 +251,80 @@ export default function App() {
       setTimeout(() => saveToStorage('logs_db', updated), 0);
       return updated;
     });
+  };
+
+  // Manual Sync Database State and Handler (failsafe for websocket lag/dropouts)
+  const [isSyncing, setIsSyncing] = useState(false);
+  
+  const handleSyncDatabase = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      console.log('Manually fetching latest data from Firestore database...');
+      
+      const [
+        fetchedPreload,
+        fetchedUsers,
+        fetchedDemands,
+        fetchedNotices,
+        fetchedChats,
+        fetchedTimes,
+        fetchedLogs,
+        fetchedMenu,
+        fetchedRooms
+      ] = await Promise.all([
+        fetchCollection('preload_db'),
+        fetchCollection('users_db'),
+        fetchCollection('demands_db'),
+        fetchCollection('notices_db'),
+        fetchCollection('chats_db'),
+        fetchCollection('times_db'),
+        fetchCollection('logs_db'),
+        fetchCollection('food_menu_db'),
+        fetchCollection('rooms_db')
+      ]);
+
+      setPreloadedStaff(fetchedPreload);
+      localStorage.setItem('preload_db', JSON.stringify(fetchedPreload));
+
+      setUsers(fetchedUsers);
+      localStorage.setItem('users_db', JSON.stringify(fetchedUsers));
+
+      setDemands(fetchedDemands);
+      localStorage.setItem('demands_db', JSON.stringify(fetchedDemands));
+
+      setNotices(fetchedNotices);
+      localStorage.setItem('notices_db', JSON.stringify(fetchedNotices));
+
+      setChats(fetchedChats);
+      localStorage.setItem('chats_db', JSON.stringify(fetchedChats));
+
+      setTimeSettings(fetchedTimes);
+      localStorage.setItem('times_db', JSON.stringify(fetchedTimes));
+
+      setActivityLogs(fetchedLogs);
+      localStorage.setItem('logs_db', JSON.stringify(fetchedLogs));
+
+      setFoodMenu(fetchedMenu);
+      localStorage.setItem('food_menu_db', JSON.stringify(fetchedMenu));
+
+      if (fetchedRooms && fetchedRooms.length > 0) {
+        setRooms(fetchedRooms);
+        localStorage.setItem('rooms_db', JSON.stringify(fetchedRooms));
+      }
+
+      pushActivityLog(
+        'Database Synced',
+        'User executed manual database force-sync to refresh all states.',
+        loggedInUser?.name || 'User'
+      );
+      
+      console.log('Manual database sync completed successfully!');
+    } catch (error) {
+      console.error('Failed to manually sync Firestore database:', error);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   // Reset demo databases
@@ -348,7 +420,10 @@ export default function App() {
 
     setUsers((prev) => {
       const updated = [...prev, createdUser];
-      setTimeout(() => saveToStorage('users_db', updated), 0);
+      setTimeout(() => {
+        localStorage.setItem('users_db', JSON.stringify(updated));
+        saveDocToFirestore('users_db', createdUser);
+      }, 0);
       return updated;
     });
 
@@ -389,8 +464,11 @@ export default function App() {
     };
 
     setDemands((prev) => {
-      const updated = [...prev, newDemand];
-      setTimeout(() => saveToStorage('demands_db', updated), 0);
+      const updated = [newDemand, ...prev];
+      setTimeout(() => {
+        localStorage.setItem('demands_db', JSON.stringify(updated));
+        saveDocToFirestore('demands_db', newDemand);
+      }, 0);
       return updated;
     });
 
@@ -427,9 +505,21 @@ export default function App() {
   // =====================================
 
   const handleApproveUser = (userId: string) => {
+    let approvedUser: User | null = null;
     setUsers((prev) => {
-      const updated = prev.map((u) => (u.id === userId ? { ...u, status: 'approved' as const } : u));
-      setTimeout(() => saveToStorage('users_db', updated), 0);
+      const updated = prev.map((u) => {
+        if (u.id === userId) {
+          approvedUser = { ...u, status: 'approved' as const };
+          return approvedUser;
+        }
+        return u;
+      });
+      setTimeout(() => {
+        localStorage.setItem('users_db', JSON.stringify(updated));
+        if (approvedUser) {
+          saveDocToFirestore('users_db', approvedUser);
+        }
+      }, 0);
       return updated;
     });
 
@@ -446,7 +536,10 @@ export default function App() {
             department: userObj.department || 'General'
           };
           const updated = [...prev, newStaff];
-          setTimeout(() => saveToStorage('preload_db', updated), 0);
+          setTimeout(() => {
+            localStorage.setItem('preload_db', JSON.stringify(updated));
+            saveDocToFirestore('preload_db', newStaff);
+          }, 0);
           return updated;
         }
         return prev;
@@ -495,9 +588,21 @@ export default function App() {
   };
 
   const handleBlockUser = (userId: string) => {
+    let blockedUser: User | null = null;
     setUsers((prev) => {
-      const updated = prev.map((u) => (u.id === userId ? { ...u, status: 'blocked' as const } : u));
-      setTimeout(() => saveToStorage('users_db', updated), 0);
+      const updated = prev.map((u) => {
+        if (u.id === userId) {
+          blockedUser = { ...u, status: 'blocked' as const };
+          return blockedUser;
+        }
+        return u;
+      });
+      setTimeout(() => {
+        localStorage.setItem('users_db', JSON.stringify(updated));
+        if (blockedUser) {
+          saveDocToFirestore('users_db', blockedUser);
+        }
+      }, 0);
       return updated;
     });
 
@@ -506,9 +611,21 @@ export default function App() {
   };
 
   const handleUnblockUser = (userId: string) => {
+    let unblockedUser: User | null = null;
     setUsers((prev) => {
-      const updated = prev.map((u) => (u.id === userId ? { ...u, status: 'approved' as const } : u));
-      setTimeout(() => saveToStorage('users_db', updated), 0);
+      const updated = prev.map((u) => {
+        if (u.id === userId) {
+          unblockedUser = { ...u, status: 'approved' as const };
+          return unblockedUser;
+        }
+        return u;
+      });
+      setTimeout(() => {
+        localStorage.setItem('users_db', JSON.stringify(updated));
+        if (unblockedUser) {
+          saveDocToFirestore('users_db', unblockedUser);
+        }
+      }, 0);
       return updated;
     });
 
@@ -518,26 +635,41 @@ export default function App() {
 
   const handleUpdateUserRoom = (userId: string, newRoomNumber: string) => {
     let staffIdToUpdate = '';
+    let updatedUserObj: User | null = null;
     setUsers((prev) => {
       const updated = prev.map((u) => {
         if (u.id === userId) {
           staffIdToUpdate = u.staffId;
-          return { ...u, roomNumber: newRoomNumber };
+          updatedUserObj = { ...u, roomNumber: newRoomNumber };
+          return updatedUserObj;
         }
         return u;
       });
-      setTimeout(() => saveToStorage('users_db', updated), 0);
+      setTimeout(() => {
+        localStorage.setItem('users_db', JSON.stringify(updated));
+        if (updatedUserObj) {
+          saveDocToFirestore('users_db', updatedUserObj);
+        }
+      }, 0);
       return updated;
     });
 
     if (staffIdToUpdate) {
       setPreloadedStaff((prev) => {
-        const updated = prev.map((s) =>
-          s.staffId.toLowerCase() === staffIdToUpdate.toLowerCase()
-            ? { ...s, roomNumber: newRoomNumber }
-            : s
-        );
-        setTimeout(() => saveToStorage('preload_db', updated), 0);
+        let updatedStaffObj: PreLoadedStaff | null = null;
+        const updated = prev.map((s) => {
+          if (s.staffId.toLowerCase() === staffIdToUpdate.toLowerCase()) {
+            updatedStaffObj = { ...s, roomNumber: newRoomNumber };
+            return updatedStaffObj;
+          }
+          return s;
+        });
+        setTimeout(() => {
+          localStorage.setItem('preload_db', JSON.stringify(updated));
+          if (updatedStaffObj) {
+            saveDocToFirestore('preload_db', updatedStaffObj);
+          }
+        }, 0);
         return updated;
       });
     }
@@ -555,9 +687,21 @@ export default function App() {
   };
 
   const handleApproveDemand = (demandId: string) => {
+    let approvedDemand: MealDemand | null = null;
     setDemands((prev) => {
-      const updated = prev.map((d) => (d.id === demandId ? { ...d, status: 'approved' as const } : d));
-      saveToStorage('demands_db', updated);
+      const updated = prev.map((d) => {
+        if (d.id === demandId) {
+          approvedDemand = { ...d, status: 'approved' as const };
+          return approvedDemand;
+        }
+        return d;
+      });
+      setTimeout(() => {
+        localStorage.setItem('demands_db', JSON.stringify(updated));
+        if (approvedDemand) {
+          saveDocToFirestore('demands_db', approvedDemand);
+        }
+      }, 0);
       return updated;
     });
 
@@ -570,9 +714,21 @@ export default function App() {
   };
 
   const handleRejectDemand = (demandId: string) => {
+    let rejectedDemand: MealDemand | null = null;
     setDemands((prev) => {
-      const updated = prev.map((d) => (d.id === demandId ? { ...d, status: 'rejected' as const } : d));
-      setTimeout(() => saveToStorage('demands_db', updated), 0);
+      const updated = prev.map((d) => {
+        if (d.id === demandId) {
+          rejectedDemand = { ...d, status: 'rejected' as const };
+          return rejectedDemand;
+        }
+        return d;
+      });
+      setTimeout(() => {
+        localStorage.setItem('demands_db', JSON.stringify(updated));
+        if (rejectedDemand) {
+          saveDocToFirestore('demands_db', rejectedDemand);
+        }
+      }, 0);
       return updated;
     });
 
@@ -585,13 +741,21 @@ export default function App() {
   };
 
   const handleMarkDemandServed = (demandId: string) => {
+    let servedDemand: MealDemand | null = null;
     setDemands((prev) => {
-      const updated = prev.map((d) =>
-        d.id === demandId
-          ? { ...d, status: 'served' as const, servedAt: new Date().toISOString() }
-          : d
-      );
-      setTimeout(() => saveToStorage('demands_db', updated), 0);
+      const updated = prev.map((d) => {
+        if (d.id === demandId) {
+          servedDemand = { ...d, status: 'served' as const, servedAt: new Date().toISOString() };
+          return servedDemand;
+        }
+        return d;
+      });
+      setTimeout(() => {
+        localStorage.setItem('demands_db', JSON.stringify(updated));
+        if (servedDemand) {
+          saveDocToFirestore('demands_db', servedDemand);
+        }
+      }, 0);
       return updated;
     });
 
@@ -831,6 +995,21 @@ export default function App() {
 
           {/* Master View Switcher & Actions */}
           <div className="flex flex-wrap items-center gap-3">
+            {/* Manual Database Sync Button */}
+            <button
+              onClick={handleSyncDatabase}
+              disabled={isSyncing}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                isSyncing 
+                  ? 'bg-orange-50 border-orange-200 text-orange-600' 
+                  : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900 shadow-sm'
+              }`}
+              title={lang === 'bn' ? 'ডাটাবেজ রিফ্রেশ করুন' : 'Refresh database from server'}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-orange-500' : 'text-slate-500'}`} />
+              <span>{isSyncing ? (lang === 'bn' ? 'লোড হচ্ছে...' : 'Syncing...') : (lang === 'bn' ? 'ডাটা সিঙ্ক' : 'Sync Data')}</span>
+            </button>
+
             {/* Language Switch */}
             <div className="flex bg-slate-100 p-0.5 rounded-xl text-xs font-bold border border-slate-200/50">
               <button
@@ -931,7 +1110,7 @@ export default function App() {
               />
             ) : (
               // Admin Login Screen
-              <div className="max-w-md mx-auto my-12 bg-white rounded-3xl border border-slate-100 shadow-xl overflow-hidden" id="admin-login-view">
+              <div className="w-full max-w-lg sm:max-w-xl mx-auto my-12 bg-white rounded-3xl border border-slate-100 shadow-xl overflow-hidden" id="admin-login-view">
                 <div className="bg-indigo-600 p-6 text-white text-center">
                   <div className="w-12 h-12 bg-white/15 rounded-full flex items-center justify-center mx-auto mb-3">
                     <Shield className="w-6 h-6 text-white" />

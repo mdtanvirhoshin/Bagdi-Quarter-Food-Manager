@@ -363,25 +363,25 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
   // RENDER PENDING APPROVAL VIEW
   if (currentUser && currentUser.status === 'pending') {
     return (
-      <div className="max-w-md mx-auto my-12 bg-white/95 backdrop-blur border border-orange-100 rounded-3xl shadow-2xl p-8 text-center" id="pending-approval-card">
+      <div className="w-full max-w-md sm:max-w-xl md:max-w-2xl mx-auto my-12 bg-white/95 backdrop-blur border border-orange-100 rounded-3xl shadow-2xl p-8 sm:p-10 text-center transition-all duration-300" id="pending-approval-card">
         <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-6 border border-amber-100 shadow-inner">
           <Clock className="w-10 h-10 text-amber-500 animate-pulse" />
         </div>
-        <h3 className="text-xl font-bold text-slate-800 mb-2">
+        <h3 className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-800 mb-2">
           {lang === 'bn' ? 'যাচাইকরণ পেন্ডিং রয়েছে' : 'Verification Pending'}
         </h3>
-        <p className="text-sm text-slate-500 mb-6 leading-relaxed">
+        <p className="text-sm sm:text-base text-slate-500 mb-6 leading-relaxed">
           {t.pendingApproval}
         </p>
-        <div className="bg-orange-50/20 border border-orange-100/50 rounded-2xl p-4 text-left mb-6 space-y-2">
-          <div className="text-xs text-slate-600"><strong className="text-slate-800">Name:</strong> {currentUser.name}</div>
-          <div className="text-xs text-slate-600"><strong className="text-slate-800">Staff ID:</strong> {currentUser.staffId}</div>
-          <div className="text-xs text-slate-600"><strong className="text-slate-800">Room:</strong> {currentUser.roomNumber}</div>
-          <div className="text-xs text-slate-600"><strong className="text-slate-800">Department:</strong> {currentUser.department}</div>
+        <div className="bg-orange-50/20 border border-orange-100/50 rounded-2xl p-5 sm:p-6 text-left mb-6 space-y-3">
+          <div className="text-sm sm:text-base text-slate-600"><strong className="text-slate-800">Name:</strong> {currentUser.name}</div>
+          <div className="text-sm sm:text-base text-slate-600"><strong className="text-slate-800">Staff ID:</strong> {currentUser.staffId}</div>
+          <div className="text-sm sm:text-base text-slate-600"><strong className="text-slate-800">Room:</strong> {currentUser.roomNumber}</div>
+          <div className="text-sm sm:text-base text-slate-600"><strong className="text-slate-800">Department:</strong> {currentUser.department}</div>
         </div>
         <button
           onClick={onLogout}
-          className="w-full bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-500 hover:to-amber-400 text-white font-bold py-3.5 rounded-2xl transition shadow-lg cursor-pointer"
+          className="w-full bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-500 hover:to-amber-400 text-white font-bold py-4 rounded-2xl transition shadow-lg cursor-pointer text-sm sm:text-base"
         >
           {t.logout}
         </button>
@@ -392,19 +392,19 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
   // RENDER BLOCKED VIEW
   if (currentUser && currentUser.status === 'blocked') {
     return (
-      <div className="max-w-md mx-auto my-12 bg-white/95 backdrop-blur border border-rose-100 rounded-3xl shadow-2xl p-8 text-center" id="blocked-account-card">
+      <div className="w-full max-w-md sm:max-w-xl md:max-w-2xl mx-auto my-12 bg-white/95 backdrop-blur border border-rose-100 rounded-3xl shadow-2xl p-8 sm:p-10 text-center transition-all duration-300" id="blocked-account-card">
         <div className="w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-6 border border-rose-100">
           <ShieldAlert className="w-10 h-10 text-rose-500" />
         </div>
-        <h3 className="text-xl font-bold text-slate-800 mb-2">
+        <h3 className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-800 mb-2">
           {lang === 'bn' ? 'অ্যাকাউন্ট ব্লক করা হয়েছে' : 'Account Blocked'}
         </h3>
-        <p className="text-sm text-rose-600 mb-6 leading-relaxed bg-rose-50 p-4 rounded-2xl border border-rose-100">
+        <p className="text-sm sm:text-base text-rose-600 mb-6 leading-relaxed bg-rose-50 p-5 sm:p-6 rounded-2xl border border-rose-100">
           {t.accountBlocked}
         </p>
         <button
           onClick={onLogout}
-          className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3.5 rounded-2xl transition shadow"
+          className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 rounded-2xl transition shadow text-sm sm:text-base"
         >
           {t.logout}
         </button>
@@ -415,20 +415,20 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
   // RENDER AUTHENTICATION FORMS (LOGIN / REGISTER WITH FOOD EMBELLISHMENTS)
   if (!currentUser) {
     return (
-      <div className="max-w-md mx-auto my-6 bg-white/95 backdrop-blur border border-orange-100 rounded-3xl shadow-2xl overflow-hidden" id="staff-auth-container">
+      <div className="w-full max-w-md sm:max-w-xl md:max-w-2xl mx-auto my-6 bg-white/95 backdrop-blur border border-orange-100 rounded-3xl shadow-2xl overflow-hidden transition-all duration-300" id="staff-auth-container">
         {/* Decorative App Header for Food Vibe */}
-        <div className="bg-gradient-to-r from-orange-600 via-amber-500 to-orange-500 text-white p-6 text-center space-y-1 shadow-md">
-          <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur mx-auto flex items-center justify-center shadow-inner">
-            <Utensils className="w-6 h-6 text-white" />
+        <div className="bg-gradient-to-r from-orange-600 via-amber-500 to-orange-500 text-white p-8 sm:p-10 text-center space-y-3 shadow-md">
+          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/20 backdrop-blur mx-auto flex items-center justify-center shadow-inner transition-transform duration-300 hover:scale-105">
+            <Utensils className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
           </div>
-          <h2 className="text-lg font-black tracking-tight mt-2">Bagdi Quarter Food Manager</h2>
-          <p className="text-[10px] text-amber-100 font-medium uppercase tracking-widest">{lang === 'bn' ? 'কোয়ার্টার খাবার ব্যবস্থাপনা' : 'Quarter Food Management System'}</p>
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-black tracking-tight mt-3">Bagdi Quarter Food Manager</h2>
+          <p className="text-xs sm:text-sm text-amber-100 font-semibold uppercase tracking-widest mt-1">{lang === 'bn' ? 'কোয়ার্টার খাবার ব্যবস্থাপনা' : 'Quarter Food Management System'}</p>
         </div>
 
-        <div className="flex bg-orange-50/50 p-1.5 m-6 border border-orange-100 rounded-2xl">
+        <div className="flex bg-orange-50/50 p-1.5 m-6 sm:m-8 border border-orange-100 rounded-2xl">
           <button
             onClick={() => { setAuthMode('login'); setRegError(''); setLoginError(''); }}
-            className={`flex-1 text-center py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+            className={`flex-1 text-center py-2.5 sm:py-3 text-xs sm:text-sm font-bold rounded-xl transition-all cursor-pointer ${
               authMode === 'login'
                 ? 'bg-gradient-to-r from-orange-600 to-amber-500 text-white shadow-md'
                 : 'text-slate-600 hover:text-slate-900'
@@ -438,7 +438,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
           </button>
           <button
             onClick={() => { setAuthMode('register'); setRegError(''); setLoginError(''); }}
-            className={`flex-1 text-center py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+            className={`flex-1 text-center py-2.5 sm:py-3 text-xs sm:text-sm font-bold rounded-xl transition-all cursor-pointer ${
               authMode === 'register'
                 ? 'bg-gradient-to-r from-orange-600 to-amber-500 text-white shadow-md'
                 : 'text-slate-600 hover:text-slate-900'
@@ -450,10 +450,10 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
 
         {/* 1. LOGIN MODE */}
         {(authMode === 'login') && (
-          <form onSubmit={handleLoginSubmit} className="p-6 pt-0 space-y-4" id="staff-login-form">
+          <form onSubmit={handleLoginSubmit} className="p-6 sm:p-8 pt-0 sm:pt-0 space-y-5" id="staff-login-form">
             <div className="text-center mb-4">
-              <h3 className="text-sm font-extrabold text-slate-800">{t.loginTitle}</h3>
-              <p className="text-[11px] text-slate-400 mt-1">
+              <h3 className="text-sm sm:text-base font-extrabold text-slate-800">{t.loginTitle}</h3>
+              <p className="text-[11px] sm:text-xs text-slate-400 mt-1">
                 {lang === 'bn' ? 'নিবন্ধিত স্টাফ আইডি দিয়ে সরাসরি প্রবেশ করুন।' : 'Simply log in using your registered Staff ID.'}
               </p>
             </div>
@@ -466,20 +466,20 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
             )}
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">{t.staffId} <span className="text-rose-500">*</span></label>
+              <label className="block text-xs sm:text-sm font-bold text-slate-700 mb-1.5">{t.staffId} <span className="text-rose-500">*</span></label>
               <input
                 type="text"
                 required
                 value={loginStaffId}
                 onChange={(e) => setLoginStaffId(e.target.value)}
                 placeholder="e.g. ST-101"
-                className="w-full bg-slate-50 border border-orange-100/60 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500 focus:bg-white transition"
+                className="w-full bg-slate-50 border border-orange-100/60 rounded-xl px-4 py-3 sm:px-5 sm:py-3.5 text-sm sm:text-base focus:outline-none focus:border-orange-500 focus:bg-white transition"
               />
             </div>
 
             <button
               type="submit"
-              className="w-full bg-gradient-to-r from-orange-600 via-amber-500 to-orange-500 hover:from-orange-500 hover:to-amber-400 text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2 shadow-lg hover:shadow-orange-500/20 active:scale-95 cursor-pointer"
+              className="w-full bg-gradient-to-r from-orange-600 via-amber-500 to-orange-500 hover:from-orange-500 hover:to-amber-400 text-white font-bold py-3.5 sm:py-4 rounded-xl transition flex items-center justify-center gap-2 shadow-lg hover:shadow-orange-500/20 active:scale-95 cursor-pointer text-sm sm:text-base"
             >
               <LogIn className="w-4 h-4" />
               {lang === 'bn' ? 'লগইন করুন' : 'Log In'}
@@ -489,10 +489,10 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
 
         {/* 3. REGISTER MODE */}
         {authMode === 'register' && (
-          <form onSubmit={handleRegisterSubmit} className="p-6 pt-0 space-y-4 max-h-[500px] overflow-y-auto" id="staff-register-form">
+          <form onSubmit={handleRegisterSubmit} className="p-6 sm:p-8 pt-0 sm:pt-0 space-y-5 max-h-[520px] sm:max-h-[680px] md:max-h-none overflow-y-auto" id="staff-register-form">
             <div className="text-center mb-4">
-              <h3 className="text-sm font-extrabold text-slate-800">{t.registrationTitle}</h3>
-              <p className="text-[11px] text-slate-400 mt-1">{t.registrationDesc}</p>
+              <h3 className="text-sm sm:text-base font-extrabold text-slate-800">{t.registrationTitle}</h3>
+              <p className="text-[11px] sm:text-xs text-slate-400 mt-1">{t.registrationDesc}</p>
             </div>
 
             {regError && (
