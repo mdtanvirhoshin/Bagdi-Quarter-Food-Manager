@@ -212,21 +212,21 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
     return currentStr >= setting.startTime && currentStr <= setting.endTime;
   };
 
-  // Check if room is locked for a meal (demand already placed)
+  // Check if room is locked for a meal (demands already placed)
   const todayStr = new Date().toISOString().split('T')[0];
-  const getRoomDemandForMeal = (mealType: MealType) => {
-    if (!currentUser) return null;
-    return demands.find(
+  const getActiveRoomDemands = (mealType: MealType) => {
+    if (!currentUser) return [];
+    return demands.filter(
       (d) =>
         d.roomNumber === currentUser.roomNumber &&
         d.mealType === mealType &&
-        d.date === todayStr
+        d.date === todayStr &&
+        d.status !== 'rejected'
     );
   };
 
   const isRoomLocked = (mealType: MealType) => {
-    const dem = getRoomDemandForMeal(mealType);
-    return dem && dem.status !== 'rejected';
+    return getActiveRoomDemands(mealType).length > 0;
   };
 
   // Get other room members living in the same room
@@ -956,10 +956,16 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
             {/* Locked vs Open Demand Logic */}
             {isRoomLocked(activeMealTab) ? (
               (() => {
-                const activeDem = getRoomDemandForMeal(activeMealTab);
-                const isServed = activeDem?.status === 'served';
-                const isApproved = activeDem?.status === 'approved';
-                const isRejected = activeDem?.status === 'rejected';
+                const activeRoomDemands = getActiveRoomDemands(activeMealTab);
+                const isPending = activeRoomDemands.some(d => d.status === 'pending');
+                const isApproved = !isPending && activeRoomDemands.some(d => d.status === 'approved');
+                const isServed = !isPending && activeRoomDemands.every(d => d.status === 'served');
+                
+                const uniqueDemandedStaffIds: string[] = Array.from(
+                  new Set(activeRoomDemands.flatMap(d => d.selectedStaffIds))
+                );
+
+                const representativeDemand = activeRoomDemands[0];
                 
                 return (
                   <div className="border border-orange-100 bg-orange-50/10 rounded-2xl p-6 text-center space-y-4 shadow-sm relative overflow-hidden">
@@ -1003,9 +1009,11 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
 
                       {/* STUNNING VISUAL CARD GRID representing member statuses */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                        {activeDem?.selectedStaffIds.map((sid) => {
+                        {uniqueDemandedStaffIds.map((sid) => {
                           const matchedUser = users.find((u) => u.staffId.toLowerCase() === sid.toLowerCase());
-                          const isStaffServed = activeDem.status === 'served';
+                          const staffDem = activeRoomDemands.find(d => d.selectedStaffIds.includes(sid));
+                          const isStaffServed = staffDem?.status === 'served';
+                          const isStaffApproved = staffDem?.status === 'approved';
                           
                           return (
                             <div 
@@ -1013,7 +1021,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                               className={`bg-white border rounded-2xl p-3 flex items-center gap-3.5 shadow-sm transition-all relative overflow-hidden ${
                                 isStaffServed 
                                   ? 'border-emerald-200 bg-emerald-50/5' 
-                                  : isApproved 
+                                  : isStaffApproved 
                                   ? 'border-indigo-100 bg-indigo-50/5' 
                                   : 'border-orange-100'
                               }`}
@@ -1041,14 +1049,14 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                                   ID: {sid}
                                 </div>
                                 
-                                {/* Status badge indicating exact time */}
+                                {/* Status badge indicating exact status */}
                                 <div className="pt-1">
                                   {isStaffServed ? (
                                     <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100 animate-pulse">
                                       ✅ {lang === 'bn' ? 'খাওয়া শেষ' : 'Dined'}
-                                      {activeDem.servedAt && ` (${new Date(activeDem.servedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})`}
+                                      {staffDem?.servedAt && ` (${new Date(staffDem.servedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})`}
                                     </span>
-                                  ) : isApproved ? (
+                                  ) : isStaffApproved ? (
                                     <span className="inline-flex items-center gap-1 text-[9px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100">
                                       ✅ {lang === 'bn' ? 'অনুমোদিত' : 'Approved'}
                                     </span>
@@ -1066,9 +1074,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                     </div>
 
                     <div className="text-[10px] text-slate-400 font-mono flex items-center justify-center gap-1.5 pt-2 border-t border-orange-50">
-                      <span>Submitted by: <strong>{activeDem?.submittedByName}</strong></span>
+                      <span>Submitted by: <strong>{representativeDemand?.submittedByName}</strong></span>
                       <span>•</span>
-                      <span>Time: <strong>{activeDem?.timestamp ? new Date(activeDem.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}</strong></span>
+                      <span>Time: <strong>{representativeDemand?.timestamp ? new Date(representativeDemand.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}</strong></span>
                     </div>
                   </div>
                 );
@@ -1210,27 +1218,36 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
 
             <div className="space-y-3">
               {(['breakfast', 'lunch', 'dinner'] as MealType[]).map((mType) => {
-                const dem = getRoomDemandForMeal(mType);
+                const roomDems = demands.filter(
+                  (d) =>
+                    d.roomNumber === currentUser.roomNumber &&
+                    d.mealType === mType &&
+                    d.date === todayStr &&
+                    d.status !== 'rejected'
+                );
+                
+                const hasDems = roomDems.length > 0;
                 let statusBg = 'bg-slate-50 border-orange-100/30 text-slate-400';
                 let label = lang === 'bn' ? 'ডিমান্ড দেওয়া হয়নি' : 'No Demand';
                 let colorClass = 'text-slate-400';
 
-                if (dem) {
-                  if (dem.status === 'pending') {
+                if (hasDems) {
+                  const isAnyPending = roomDems.some(d => d.status === 'pending');
+                  const isAnyApproved = roomDems.some(d => d.status === 'approved');
+                  const isAllServed = roomDems.every(d => d.status === 'served');
+
+                  if (isAnyPending) {
                     statusBg = 'bg-amber-500/10 border-amber-200 text-amber-800';
                     label = lang === 'bn' ? '⏳ অপেক্ষমান' : '⏳ Pending';
                     colorClass = 'text-amber-600';
-                  } else if (dem.status === 'approved') {
+                  } else if (isAnyApproved) {
                     statusBg = 'bg-indigo-50 border-indigo-200 text-indigo-800';
                     label = lang === 'bn' ? '👍 অনুমোদিত' : '👍 Approved';
                     colorClass = 'text-indigo-600';
-                  } else if (dem.status === 'rejected') {
-                    statusBg = 'bg-rose-50 border-rose-200 text-rose-800';
-                    label = lang === 'bn' ? '❌ বাতিলকৃত' : '❌ Rejected';
-                    colorClass = 'text-rose-600';
-                  } else if (dem.status === 'served') {
+                  } else if (isAllServed) {
                     statusBg = 'bg-emerald-50 border-emerald-200 text-emerald-800';
-                    const formatTime = dem.servedAt ? new Date(dem.servedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+                    const servedDem = roomDems.find(d => d.status === 'served');
+                    const formatTime = servedDem?.servedAt ? new Date(servedDem.servedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
                     label = lang === 'bn' ? `✅ বিতরণকৃত (${formatTime})` : `✅ Served (${formatTime})`;
                     colorClass = 'text-emerald-600';
                   }
@@ -1249,7 +1266,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                         <div>
                           <div className={`text-xs font-extrabold uppercase tracking-wider ${colorClass}`}>{t[mType]}</div>
                           <div className="text-[10px] opacity-75 mt-0.5">
-                            {dem ? `${lang === 'bn' ? 'ডিমান্ড সদস্য:' : 'Selected:'} ${dem.selectedStaffIds.length} জন` : ''}
+                            {hasDems ? `${lang === 'bn' ? 'ডিমান্ড সদস্য:' : 'Selected:'} ${roomDems.reduce((sum, d) => sum + d.selectedStaffIds.length, 0)} জন` : ''}
                           </div>
                         </div>
                       </div>
@@ -1257,22 +1274,23 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                         <div className="text-[10px] font-black px-2.5 py-1 rounded-xl bg-white/75 backdrop-blur shadow-sm border border-orange-50">
                           {label}
                         </div>
-                        {dem && (isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />)}
+                        {hasDems && (isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />)}
                       </div>
                     </button>
 
                     {/* Detailed member view dropdown */}
-                    {dem && isExpanded && (
+                    {hasDems && isExpanded && (
                       <div className="bg-white/80 p-3.5 border-t border-orange-50 space-y-2.5 animate-in slide-in-from-top-2 duration-200">
                         <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">
                           {lang === 'bn' ? 'রুম মেম্বার স্ট্যাটাস:' : 'Room Member Details:'}
                         </div>
                         
                         <div className="space-y-2">
-                          {dem.selectedStaffIds.map((sid) => {
+                          {roomDems.flatMap(d => d.selectedStaffIds).map((sid) => {
                             const foundUser = users.find(u => u.staffId.toLowerCase() === sid.toLowerCase());
-                            const ate = dem.status === 'served';
-                            const approved = dem.status === 'approved';
+                            const staffDem = roomDems.find(d => d.selectedStaffIds.includes(sid));
+                            const ate = staffDem?.status === 'served';
+                            const approved = staffDem?.status === 'approved';
                             
                             return (
                               <div key={sid} className="flex items-center justify-between bg-white border border-orange-100/30 p-2 rounded-xl shadow-sm">

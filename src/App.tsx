@@ -453,30 +453,33 @@ export default function App() {
 
     const todayStr = new Date().toISOString().split('T')[0];
 
-    const newDemand: MealDemand = {
-      id: `dem-${Date.now()}`,
+    // Split group submission into individual demands per staff ID for independent admin actions
+    const newDemands: MealDemand[] = selectedStaffIds.map((staffId, index) => ({
+      id: `dem-${Date.now()}-${index}`,
       roomNumber: loggedInUser.roomNumber,
       mealType,
       date: todayStr,
-      selectedStaffIds,
+      selectedStaffIds: [staffId], // Single staff ID in this separate demand
       submittedBy: loggedInUser.staffId,
       submittedByName: loggedInUser.name,
       status: 'pending',
       timestamp: new Date().toISOString()
-    };
+    }));
 
     setDemands((prev) => {
-      const updated = [newDemand, ...prev];
+      const updated = [...newDemands, ...prev];
       setTimeout(() => {
         localStorage.setItem('demands_db', JSON.stringify(updated));
-        saveDocToFirestore('demands_db', newDemand);
+        newDemands.forEach((d) => {
+          saveDocToFirestore('demands_db', d);
+        });
       }, 0);
       return updated;
     });
 
     pushActivityLog(
       'Demand Submitted',
-      `${loggedInUser.name} requested ${mealType.toUpperCase()} for Room ${loggedInUser.roomNumber} (${selectedStaffIds.length} members)`,
+      `${loggedInUser.name} requested ${mealType.toUpperCase()} for Room ${loggedInUser.roomNumber} (${selectedStaffIds.length} members submitted individually)`,
       loggedInUser.name
     );
   };

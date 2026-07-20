@@ -2609,8 +2609,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     <div className="flex items-center gap-1.5 font-bold text-slate-800">
                                       <span>🍽️ {item.selectedStaffIds.length} {lang === 'bn' ? 'প্লেট' : 'Plates'}</span>
                                     </div>
-                                    <div className="text-[9px] text-slate-500 font-mono mt-1 break-all bg-slate-50 p-1.5 rounded-lg border border-slate-100 line-clamp-2" title={item.selectedStaffIds.join(', ')}>
-                                      IDs: {item.selectedStaffIds.join(', ')}
+                                    <div className="text-[10px] text-slate-600 font-medium mt-1 space-y-1 bg-slate-50 p-1.5 rounded-lg border border-slate-100">
+                                      {item.selectedStaffIds.map(sid => {
+                                        const name = getStaffName(sid);
+                                        return (
+                                          <div key={sid} className="flex flex-wrap items-center gap-1">
+                                            <span className="font-extrabold text-slate-800">{name}</span>
+                                            <span className="text-[9px] text-indigo-600 font-mono font-bold bg-indigo-50 px-1 py-0.5 rounded border border-indigo-100">({sid})</span>
+                                          </div>
+                                        );
+                                      })}
                                     </div>
                                   </td>
                                   <td className="p-3 border-r border-slate-100 text-center">
