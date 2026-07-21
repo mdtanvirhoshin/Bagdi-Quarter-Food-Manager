@@ -348,6 +348,112 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
+  const handleCopyMembersText = (filteredMembers: User[]) => {
+    if (filteredMembers.length === 0) {
+      showToast(lang === 'bn' ? 'কপি করার মতো কোনো সদস্য রেকর্ড পাওয়া যায়নি!' : 'No members found to copy!', 'info');
+      return;
+    }
+    let formattedText = lang === 'bn' ? `📋 কোয়ার্টার সদস্য তালিকা (মোট: ${filteredMembers.length} জন)\n\n` : `📋 Quarter Members List (Total: ${filteredMembers.length})\n\n`;
+    filteredMembers.forEach((m, idx) => {
+      formattedText += `${idx + 1}. নাম: ${m.name} | রুম: ${m.roomNumber} | আইডি: ${m.staffId} | মোবাইল: ${m.mobile}\n`;
+    });
+    const success = copyTextToClipboard(formattedText);
+    if (success) {
+      showToast(lang === 'bn' ? 'সদস্য তালিকা কপি হয়েছে!' : 'Members list copied successfully!', 'success');
+    } else {
+      showToast(lang === 'bn' ? 'কপি ব্যর্থ হয়েছে!' : 'Copy failed!', 'info');
+    }
+  };
+
+  const handleCopyMembersTabular = (filteredMembers: User[]) => {
+    if (filteredMembers.length === 0) {
+      showToast(lang === 'bn' ? 'কপি করার মতো কোনো সদস্য রেকর্ড পাওয়া যায়নি!' : 'No members found to copy!', 'info');
+      return;
+    }
+    let formattedText = `S.No\tName\tRoom Number\tStaff ID\tMobile\tWhatsApp\tDepartment\n`;
+    filteredMembers.forEach((m, idx) => {
+      formattedText += `${idx + 1}\t${m.name}\tRoom ${m.roomNumber}\t${m.staffId}\t${m.mobile}\t${m.whatsapp}\t${m.department}\n`;
+    });
+    const success = copyTextToClipboard(formattedText);
+    if (success) {
+      showToast(lang === 'bn' ? 'এক্সেল/শীট পেস্ট উপযোগী ডাটা কপি হয়েছে!' : 'Copied rows for Excel/Google Sheets!', 'success');
+    } else {
+      showToast(lang === 'bn' ? 'কপি ব্যর্থ হয়েছে!' : 'Copy failed!', 'info');
+    }
+  };
+
+  const handleCopyEatingReport = (list: User[], type: 'ate' | 'didnot_eat') => {
+    if (list.length === 0) {
+      showToast(lang === 'bn' ? 'কপি করার মতো কোনো ডাটা পাওয়া যায়নি!' : 'No data found to copy!', 'info');
+      return;
+    }
+    
+    const mealLabel = lang === 'bn' 
+      ? (selectedReportMealType === 'breakfast' ? 'সকাল' : selectedReportMealType === 'lunch' ? 'দুপুর' : 'রাত')
+      : (selectedReportMealType === 'breakfast' ? 'Breakfast' : selectedReportMealType === 'lunch' ? 'Lunch' : 'Dinner');
+
+    let formattedText = '';
+    if (type === 'ate') {
+      formattedText = lang === 'bn'
+        ? `📋 খাবার গ্রহণ করেছেন যারা (তারিখ: ${selectedReportDate}, মিল: ${mealLabel}, মোট: ${list.length} জন)\n`
+        : `📋 Ate / Served Members List (Date: ${selectedReportDate}, Meal: ${mealLabel}, Total: ${list.length})\n`;
+    } else {
+      formattedText = lang === 'bn'
+        ? `📋 খাবার গ্রহণ করেননি যারা (তারিখ: ${selectedReportDate}, মিল: ${mealLabel}, মোট: ${list.length} জন)\n`
+        : `📋 Didn't Eat Members List (Date: ${selectedReportDate}, Meal: ${mealLabel}, Total: ${list.length})\n`;
+    }
+    formattedText += `-------------------------------------------------\n`;
+    
+    list.forEach((item, idx) => {
+      formattedText += `${idx + 1}. নাম: ${item.name} | রুম: ${item.roomNumber} | আইডি: ${item.staffId} | মোবাইল: ${item.mobile}\n`;
+    });
+    
+    formattedText += `-------------------------------------------------\n`;
+    formattedText += lang === 'bn' ? `জেনারেট সময়: ${new Date().toLocaleTimeString()}\n` : `Generated at: ${new Date().toLocaleTimeString()}\n`;
+
+    const success = copyTextToClipboard(formattedText);
+    if (success) {
+      showToast(
+        lang === 'bn' 
+          ? 'ক্লিপবোর্ডে তালিকাটি কপি হয়েছে!' 
+          : 'List copied to clipboard!', 
+        'success'
+      );
+    } else {
+      showToast(lang === 'bn' ? 'কপি ব্যর্থ হয়েছে!' : 'Copy failed!', 'info');
+    }
+  };
+
+  const handleCopyEatingReportTabular = (list: User[], type: 'ate' | 'didnot_eat') => {
+    if (list.length === 0) {
+      showToast(lang === 'bn' ? 'কপি করার মতো কোনো ডাটা পাওয়া যায়নি!' : 'No data found to copy!', 'info');
+      return;
+    }
+
+    let formattedText = '';
+    if (lang === 'bn') {
+      formattedText = `ক্রমিক\tনাম\tরুম নং\tস্টাফ আইডি\tমোবাইল নম্বর\n`;
+    } else {
+      formattedText = `S.No\tName\tRoom No\tStaff ID\tMobile\n`;
+    }
+
+    list.forEach((item, idx) => {
+      formattedText += `${idx + 1}\t${item.name}\tRoom ${item.roomNumber}\t${item.staffId}\t${item.mobile}\n`;
+    });
+
+    const success = copyTextToClipboard(formattedText);
+    if (success) {
+      showToast(
+        lang === 'bn' 
+          ? 'এক্সেল/শীট পেস্ট উপযোগী ডাটা কপি হয়েছে!' 
+          : 'Copied rows for Excel/Google Sheets!', 
+        'success'
+      );
+    } else {
+      showToast(lang === 'bn' ? 'কপি ব্যর্থ হয়েছে!' : 'Copy failed!', 'info');
+    }
+  };
+
   const handleBatchDeleteReport = () => {
     if (!onDeleteDemandsByDateAndMeal) return;
 
@@ -454,6 +560,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [liveSheetDate, setLiveSheetDate] = useState<string>(todayStr);
   const [liveSheetMealType, setLiveSheetMealType] = useState<string>('all');
   const [liveSheetStatusFilter, setLiveSheetStatusFilter] = useState<string>('all');
+
+  // New Reports Custom States
+  const [membersListSearch, setMembersListSearch] = useState('');
+  const [eatingStatusTab, setEatingStatusTab] = useState<'ate' | 'didnot_eat'>('ate');
+  const [eatingStatusSearch, setEatingStatusSearch] = useState('');
 
   // 1. Preloaded Staff and User search maps for O(1) lookups
   const preloadedStaffMap = React.useMemo(() => {
@@ -2428,6 +2539,465 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </table>
                         </div>
                       )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* SHEET 1: REGISTERED MEMBERS LIST WITH ROOM & MOBILE */}
+            <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-6 animate-fade-in" id="approved-members-database-sheet">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                <div className="space-y-1">
+                  <span className="text-[9px] font-black tracking-widest text-emerald-600 uppercase bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-xl">
+                    {lang === 'bn' ? 'আবাসিক ডাটাবেজ' : 'Residents Database'}
+                  </span>
+                  <h3 className="text-base font-black text-slate-800 flex items-center gap-2 mt-1">
+                    <span>📋</span>
+                    {lang === 'bn' ? 'কোয়ার্টার সকল সদস্যের তালিকা (রুম ও ফোন নম্বর)' : 'All Quarter Members List (Room & Mobile)'}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    {lang === 'bn' 
+                      ? 'কোয়ার্টারের সকল অনুমোদিত আবাসিক সদস্য সংখ্যা, তাদের রুম নং এবং যোগাযোগের ফোন নম্বর।' 
+                      : 'Complete roster of approved quarter residents, room numbers, and contact details.'}
+                  </p>
+                </div>
+
+                {/* Total approved members badge */}
+                {(() => {
+                  const approvedCount = users.filter(u => u.status === 'approved').length;
+                  return (
+                    <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 px-4 py-2 rounded-2xl">
+                      <Users className="w-4 h-4 text-emerald-500" />
+                      <span className="text-xs font-black text-slate-700">
+                        {lang === 'bn' ? `মোট সদস্য সংখ্যা: ${approvedCount} জন` : `Total Members: ${approvedCount}`}
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Filtering & Copy controls for Sheet 1 */}
+              {(() => {
+                const approvedMembersList = users.filter((u) => u.status === 'approved');
+                const filteredMembers = approvedMembersList.filter((m) => {
+                  const q = membersListSearch.toLowerCase().trim();
+                  return !q || 
+                    m.name.toLowerCase().includes(q) ||
+                    m.roomNumber.toLowerCase().includes(q) ||
+                    m.staffId.toLowerCase().includes(q) ||
+                    m.mobile.includes(q);
+                });
+
+                return (
+                  <div className="space-y-4">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                      {/* Search box */}
+                      <div className="relative flex-1">
+                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                        <input
+                          type="text"
+                          value={membersListSearch}
+                          onChange={(e) => setMembersListSearch(e.target.value)}
+                          placeholder={lang === 'bn' ? 'নাম, রুম নং, স্টাফ আইডি বা ফোন নম্বর দিয়ে খুঁজুন...' : 'Search Name, Room, ID, Mobile...'}
+                          className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/35 font-bold text-slate-700 placeholder-slate-400 transition"
+                        />
+                      </div>
+
+                      {/* Bulk actions */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyMembersText(filteredMembers)}
+                          className="bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold px-3.5 py-2 rounded-xl transition shadow flex items-center gap-1.5 cursor-pointer active:scale-95"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>{lang === 'bn' ? 'তালিকা কপি' : 'Copy List'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyMembersTabular(filteredMembers)}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold px-3.5 py-2 rounded-xl transition shadow flex items-center gap-1.5 cursor-pointer active:scale-95"
+                        >
+                          <Clipboard className="w-3.5 h-3.5" />
+                          <span>{lang === 'bn' ? 'শীট কপি (Excel)' : 'Copy for Sheets'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Roster Table */}
+                    <div className="border border-slate-100 rounded-2xl overflow-hidden bg-white shadow-sm">
+                      {filteredMembers.length === 0 ? (
+                        <div className="p-12 text-center text-slate-400 space-y-1">
+                          <span className="text-2xl">👥</span>
+                          <p className="text-xs font-bold">{lang === 'bn' ? 'কোনো সদস্য রেকর্ড পাওয়া যায়নি!' : 'No members found!'}</p>
+                          <p className="text-[10px] text-slate-400">{lang === 'bn' ? 'অনুগ্রহ করে সার্চ ইনপুট পরিবর্তন করে দেখুন।' : 'Please check your search query.'}</p>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto max-h-[350px] overflow-y-auto">
+                          <table className="w-full text-xs text-left text-slate-600">
+                            <thead className="bg-slate-50 text-slate-500 font-extrabold border-b border-slate-150 uppercase tracking-wider text-[10px]">
+                              <tr>
+                                <th className="p-3 text-center w-12">{lang === 'bn' ? 'ক্রমিক' : 'S.No'}</th>
+                                <th className="p-3 w-16 text-center">{lang === 'bn' ? 'ছবি' : 'Photo'}</th>
+                                <th className="p-3">{lang === 'bn' ? 'নাম ও স্টাফ আইডি' : 'Name & Staff ID'}</th>
+                                <th className="p-3 text-center">{lang === 'bn' ? 'রুম নং' : 'Room No'}</th>
+                                <th className="p-3">{lang === 'bn' ? 'মোবাইল নম্বর' : 'Mobile Number'}</th>
+                                <th className="p-3">{lang === 'bn' ? 'হোয়াটসঅ্যাপ' : 'WhatsApp'}</th>
+                                <th className="p-3">{lang === 'bn' ? 'বিভাগ' : 'Department'}</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-medium">
+                              {filteredMembers.map((m, idx) => (
+                                <tr key={m.id} className="hover:bg-slate-50/70 transition">
+                                  <td className="p-3 text-center font-mono font-bold text-slate-400">{idx + 1}</td>
+                                  <td className="p-3 text-center">
+                                    {m.userPhoto ? (
+                                      <img
+                                        src={m.userPhoto}
+                                        alt={m.name}
+                                        className="w-9 h-9 rounded-full object-cover border border-slate-200 shadow-sm mx-auto animate-fade-in"
+                                        referrerPolicy="no-referrer"
+                                      />
+                                    ) : (
+                                      <div className="w-9 h-9 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center font-bold text-xs border mx-auto">
+                                        {m.name.charAt(0)}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="p-3">
+                                    <div className="font-bold text-slate-800 text-[13px]">{m.name}</div>
+                                    <div className="text-[10px] text-indigo-600 font-mono font-bold">{m.staffId}</div>
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    <span className="bg-slate-100 text-slate-700 font-extrabold px-2.5 py-1 rounded-xl font-mono text-[11px] border border-slate-150">
+                                      Room {m.roomNumber}
+                                    </span>
+                                  </td>
+                                  <td className="p-3 font-mono font-bold text-slate-700">{m.mobile}</td>
+                                  <td className="p-3 font-mono font-bold text-emerald-600">
+                                    {m.whatsapp ? m.whatsapp : 'N/A'}
+                                  </td>
+                                  <td className="p-3 text-slate-500 font-bold text-[11px]">{m.department || 'N/A'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* SHEET 2: EATING STATUS LIVE SHEET (ATE VS DID NOT EAT) */}
+            <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6 shadow-sm space-y-6 animate-fade-in" id="eating-status-comparison-sheet">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+                <div className="space-y-1">
+                  <span className="text-[9px] font-black tracking-widest text-indigo-600 uppercase bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-xl">
+                    {lang === 'bn' ? 'খাবার বিবরণী রিপোর্ট' : 'Meal Status Report'}
+                  </span>
+                  <h3 className="text-base font-black text-slate-800 flex items-center gap-2 mt-1">
+                    <span>🍽️</span>
+                    {lang === 'bn' ? 'মিল খাওয়া ও না খাওয়ার লাইভ বিবরণী' : 'Meal Eating & Non-eating Live Report'}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    {lang === 'bn' 
+                      ? 'যেকোনো তারিখ ও মিল নির্বাচন করে কে কে খেয়েছে এবং কে কে খায়নি ছবি সহ রিয়েল-টাইমে দেখুন।' 
+                      : 'Roster of who ate (served) vs who did not eat yet for any target date and meal time.'}
+                  </p>
+                </div>
+
+                {/* Inline Date and Quick Meal Selectors to stay in sync */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="date"
+                    value={selectedReportDate}
+                    onChange={(e) => {
+                      if (e.target.value) setSelectedReportDate(e.target.value);
+                    }}
+                    className="bg-white border border-slate-200 text-slate-700 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-bold transition"
+                  />
+                  
+                  <div className="flex items-center bg-white p-1 rounded-xl border border-slate-200">
+                    {(['breakfast', 'lunch', 'dinner'] as MealType[]).map((meal) => {
+                      const isActive = selectedReportMealType === meal;
+                      const labels: Record<string, string> = {
+                        breakfast: lang === 'bn' ? '🍳 সকাল' : 'Breakfast',
+                        lunch: lang === 'bn' ? '🍛 দুপুর' : 'Lunch',
+                        dinner: lang === 'bn' ? '🍗 রাত' : 'Dinner'
+                      };
+                      return (
+                        <button
+                          key={meal}
+                          type="button"
+                          onClick={() => setSelectedReportMealType(meal)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                            isActive 
+                              ? 'bg-slate-900 text-white shadow-sm' 
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          {labels[meal]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Stat Boxes Row */}
+              {(() => {
+                const approvedResidents = users.filter((u) => u.status === 'approved');
+                const dayMealDemands = demands.filter(
+                  (d) => d.date === selectedReportDate && d.mealType === selectedReportMealType
+                );
+
+                const staffIdsWhoDemanded = new Set<string>();
+                const staffIdsWhoAte = new Set<string>();
+                const staffDemandStatusMap = new Map<string, 'pending' | 'approved' | 'served' | 'rejected'>();
+
+                dayMealDemands.forEach((d) => {
+                  d.selectedStaffIds.forEach((sid) => {
+                    const lowerSid = sid.toLowerCase();
+                    if (d.status !== 'rejected') {
+                      staffIdsWhoDemanded.add(lowerSid);
+                    }
+                    if (d.status === 'served') {
+                      staffIdsWhoAte.add(lowerSid);
+                    }
+                    
+                    const existing = staffDemandStatusMap.get(lowerSid);
+                    if (!existing || d.status === 'served' || (d.status === 'approved' && existing !== 'served') || (d.status === 'pending' && existing === 'rejected')) {
+                      staffDemandStatusMap.set(lowerSid, d.status);
+                    }
+                  });
+                });
+
+                const ateList = approvedResidents.filter((r) => staffIdsWhoAte.has(r.staffId.toLowerCase()));
+                const didNotEatList = approvedResidents.filter((r) => !staffIdsWhoAte.has(r.staffId.toLowerCase()));
+
+                const totalDemandedCount = staffIdsWhoDemanded.size;
+                const totalAteCount = ateList.length;
+                const totalDidNotEatCount = didNotEatList.length;
+
+                // Apply search inside Sheet 2 list
+                const filterList = (list: typeof approvedResidents, query: string) => {
+                  const q = query.toLowerCase().trim();
+                  return list.filter((item) => {
+                    return !q || 
+                      item.name.toLowerCase().includes(q) ||
+                      item.roomNumber.toLowerCase().includes(q) ||
+                      item.staffId.toLowerCase().includes(q);
+                  });
+                };
+
+                const currentList = eatingStatusTab === 'ate' ? ateList : didNotEatList;
+                const filteredList = filterList(currentList, eatingStatusSearch);
+
+                return (
+                  <div className="space-y-6">
+                    {/* Stat box grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      {/* Demands count */}
+                      <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center justify-between shadow-sm">
+                        <div>
+                          <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">{lang === 'bn' ? 'মোট ডিমান্ড দিয়েছেন' : 'Total Demands Placed'}</p>
+                          <h4 className="text-2xl font-black text-indigo-600 mt-1 font-mono">{totalDemandedCount} <span className="text-xs font-bold text-slate-400">{lang === 'bn' ? 'জন' : 'staff'}</span></h4>
+                        </div>
+                        <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-500 font-bold text-lg">
+                          📝
+                        </div>
+                      </div>
+
+                      {/* Ate / Served count */}
+                      <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center justify-between shadow-sm border-l-4 border-l-sky-500">
+                        <div>
+                          <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">{lang === 'bn' ? 'মোট খেয়েছেন (Served)' : 'Total Served / Ate'}</p>
+                          <h4 className="text-2xl font-black text-sky-600 mt-1 font-mono">{totalAteCount} <span className="text-xs font-bold text-slate-400">{lang === 'bn' ? 'জন' : 'staff'}</span></h4>
+                        </div>
+                        <div className="w-10 h-10 rounded-xl bg-sky-50 flex items-center justify-center text-sky-500 font-bold text-lg animate-pulse">
+                          🍽️
+                        </div>
+                      </div>
+
+                      {/* Didn't Eat count */}
+                      <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center justify-between shadow-sm border-l-4 border-l-amber-500">
+                        <div>
+                          <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">{lang === 'bn' ? 'মোট খাননি' : 'Total Not Ate / Left'}</p>
+                          <h4 className="text-2xl font-black text-amber-600 mt-1 font-mono">{totalDidNotEatCount} <span className="text-xs font-bold text-slate-400">{lang === 'bn' ? 'জন' : 'staff'}</span></h4>
+                        </div>
+                        <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center text-amber-500 font-bold text-lg">
+                          ⏳
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Section Switcher, Search and Export Row */}
+                    <div className="bg-white border border-slate-200 p-4 rounded-2xl space-y-4 shadow-sm">
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        {/* Tab Segment buttons */}
+                        <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl max-w-md w-full border">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEatingStatusTab('ate');
+                              setEatingStatusSearch('');
+                            }}
+                            className={`py-2 rounded-lg text-xs font-extrabold transition-all duration-200 flex items-center justify-center gap-1.5 cursor-pointer ${
+                              eatingStatusTab === 'ate'
+                                ? 'bg-slate-900 text-white shadow-md scale-[1.02]'
+                                : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                          >
+                            <UserCheck className="w-4 h-4 text-emerald-400" />
+                            <span>{lang === 'bn' ? `যারা খেয়েছেন (${totalAteCount})` : `Ate List (${totalAteCount})`}</span>
+                          </button>
+                          
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEatingStatusTab('didnot_eat');
+                              setEatingStatusSearch('');
+                            }}
+                            className={`py-2 rounded-lg text-xs font-extrabold transition-all duration-200 flex items-center justify-center gap-1.5 cursor-pointer ${
+                              eatingStatusTab === 'didnot_eat'
+                                ? 'bg-slate-900 text-white shadow-md scale-[1.02]'
+                                : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                          >
+                            <UserMinus className="w-4 h-4 text-amber-500" />
+                            <span>{lang === 'bn' ? `যারা খাননি (${totalDidNotEatCount})` : `Not Ate List (${totalDidNotEatCount})`}</span>
+                          </button>
+                        </div>
+
+                        {/* Search and copy controls */}
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 lg:justify-end">
+                          <div className="relative flex-1 max-w-xs">
+                            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                            <input
+                              type="text"
+                              value={eatingStatusSearch}
+                              onChange={(e) => setEatingStatusSearch(e.target.value)}
+                              placeholder={lang === 'bn' ? 'নাম, রুম বা স্টাফ আইডি...' : 'Search Name, Room, ID...'}
+                              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/35 font-bold text-slate-700 placeholder-slate-400 transition"
+                            />
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleCopyEatingReport(filteredList, eatingStatusTab)}
+                              className="bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold px-3.5 py-2 rounded-xl transition shadow flex items-center gap-1.5 cursor-pointer active:scale-95"
+                              title={lang === 'bn' ? 'তালিকা ক্লিপবোর্ডে কপি করুন' : 'Copy report text to clipboard'}
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                              <span>{lang === 'bn' ? 'কপি' : 'Copy'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyEatingReportTabular(filteredList, eatingStatusTab)}
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold px-3.5 py-2 rounded-xl transition shadow flex items-center gap-1.5 cursor-pointer active:scale-95"
+                              title={lang === 'bn' ? 'এক্সেল বা গুগল শিটে পেস্ট করার জন্য কপি' : 'Copy row format for Excel/Sheets'}
+                            >
+                              <Clipboard className="w-3.5 h-3.5" />
+                              <span>{lang === 'bn' ? 'এক্সেল কপি' : 'For Excel'}</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Display active list */}
+                      <div className="border border-slate-100 rounded-2xl overflow-hidden bg-slate-50/40 font-sans">
+                        {filteredList.length === 0 ? (
+                          <div className="p-10 text-center text-slate-400 space-y-1.5">
+                            <span className="text-xl">🔍</span>
+                            <p className="text-xs font-bold">{lang === 'bn' ? 'কোনো রেকর্ড খুঁজে পাওয়া যায়নি!' : 'No matching records found!'}</p>
+                            <p className="text-[10px] text-slate-400">{lang === 'bn' ? 'সার্চ কুয়েরি বা ডেট পরিবর্তন করে দেখুন।' : 'Try changing search query or report date.'}</p>
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto max-h-[350px] overflow-y-auto font-sans">
+                            <table className="w-full text-xs text-left text-slate-600">
+                              <thead className="bg-slate-100 text-slate-500 font-extrabold border-b border-slate-200 uppercase tracking-wider text-[10px]">
+                                <tr>
+                                  <th className="p-3 text-center w-12">{lang === 'bn' ? 'ক্রমিক' : 'S.No'}</th>
+                                  <th className="p-3 w-16 text-center">{lang === 'bn' ? 'ছবি' : 'Photo'}</th>
+                                  <th className="p-3">{lang === 'bn' ? 'সদস্যের নাম ও আইডি' : 'Name & Staff ID'}</th>
+                                  <th className="p-3 text-center">{lang === 'bn' ? 'রুম নম্বর' : 'Room Number'}</th>
+                                  <th className="p-3 text-center">{lang === 'bn' ? 'চাহিদা অবস্থা' : 'Demand Status'}</th>
+                                  <th className="p-3">{lang === 'bn' ? 'যোগাযোগ' : 'Contact'}</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-200/60 font-medium bg-white">
+                                {filteredList.map((item, idx) => {
+                                  const statusValue = staffDemandStatusMap.get(item.staffId.toLowerCase());
+                                  
+                                  let demandLabel = '';
+                                  let statusClass = '';
+                                  
+                                  if (eatingStatusTab === 'ate') {
+                                    demandLabel = lang === 'bn' ? 'খাবার পরিবেশিত' : 'Food Served';
+                                    statusClass = 'bg-sky-50 text-sky-700 border-sky-100';
+                                  } else {
+                                    if (statusValue === 'approved') {
+                                      demandLabel = lang === 'bn' ? 'অনুমোদিত (খায়নি)' : 'Approved (Not Served)';
+                                      statusClass = 'bg-emerald-50 text-emerald-700 border-emerald-100';
+                                    } else if (statusValue === 'pending') {
+                                      demandLabel = lang === 'bn' ? 'অপেক্ষমাণ (Pending)' : 'Pending Demand';
+                                      statusClass = 'bg-amber-50 text-amber-700 border-amber-100';
+                                    } else if (statusValue === 'rejected') {
+                                      demandLabel = lang === 'bn' ? 'বাতিলকৃত (Rejected)' : 'Rejected Demand';
+                                      statusClass = 'bg-rose-50 text-rose-700 border-rose-100';
+                                    } else {
+                                      demandLabel = lang === 'bn' ? 'ডিমান্ড দেয়নি' : 'No Demand Placed';
+                                      statusClass = 'bg-slate-100 text-slate-500 border-slate-200/60';
+                                    }
+                                  }
+
+                                  return (
+                                    <tr key={item.id} className="hover:bg-slate-50/50 transition">
+                                      <td className="p-3 text-center font-mono font-bold text-slate-400">{idx + 1}</td>
+                                      <td className="p-3 text-center">
+                                        {item.userPhoto ? (
+                                          <img
+                                            src={item.userPhoto}
+                                            alt={item.name}
+                                            className="w-9 h-9 rounded-full object-cover border border-slate-200 shadow-sm mx-auto animate-fade-in"
+                                            referrerPolicy="no-referrer"
+                                          />
+                                        ) : (
+                                          <div className="w-9 h-9 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center font-bold text-xs border mx-auto">
+                                            {item.name.charAt(0)}
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="p-3">
+                                        <div className="font-bold text-slate-800 text-[13px]">{item.name}</div>
+                                        <div className="text-[10px] text-indigo-600 font-mono font-bold">{item.staffId}</div>
+                                      </td>
+                                      <td className="p-3 text-center">
+                                        <span className="bg-slate-50 text-slate-700 font-extrabold px-2.5 py-1 rounded-xl font-mono text-[11px] border border-slate-200/60">
+                                          Room {item.roomNumber}
+                                        </span>
+                                      </td>
+                                      <td className="p-3 text-center">
+                                        <span className={`text-[10px] font-extrabold px-2 py-1 rounded-xl border inline-block ${statusClass}`}>
+                                          {demandLabel}
+                                        </span>
+                                      </td>
+                                      <td className="p-3 font-mono text-[11px] font-bold text-slate-500">
+                                        <div>{item.mobile}</div>
+                                        {item.whatsapp && <div className="text-emerald-600 text-[9px]">WhatsApp: {item.whatsapp}</div>}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
