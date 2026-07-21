@@ -3,6 +3,25 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+export interface DaySchedule {
+  breakfast: boolean;
+  lunch: boolean;
+  dinner: boolean;
+}
+
+export interface AutoDemandConfig {
+  enabled: boolean;
+  schedule?: {
+    sunday: DaySchedule;
+    monday: DaySchedule;
+    tuesday: DaySchedule;
+    wednesday: DaySchedule;
+    thursday: DaySchedule;
+    friday: DaySchedule;
+    saturday: DaySchedule;
+  };
+}
+
 export type UserStatus = 'pending' | 'approved' | 'rejected' | 'blocked';
 
 export interface User {
@@ -18,6 +37,7 @@ export interface User {
   userPhoto?: string;  // Resident's face photo (নিজের ছবি) - Base64 or mock placeholder URL
   status: UserStatus;
   createdAt: string;
+  autoDemand?: AutoDemandConfig;
 }
 
 export interface RegistrationInput {

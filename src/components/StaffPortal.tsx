@@ -4,9 +4,10 @@
  */
 
 import React, { useState } from 'react';
-import { User, MealDemand, Notice, ChatMessage, TimeSetting, PreLoadedStaff, MealType, RegistrationInput, FoodMenuItem, RoomConfig } from '../types';
+import { User, MealDemand, Notice, ChatMessage, TimeSetting, PreLoadedStaff, MealType, RegistrationInput, FoodMenuItem, RoomConfig, AutoDemandConfig } from '../types';
 import { translations, Language } from '../translations';
 import { ChatPanel } from './ChatPanel';
+import { saveDocToFirestore } from '../lib/firebase';
 import { 
   Lock, CheckCircle, AlertCircle, Calendar, 
   Clock, Megaphone, CheckSquare, Square, 
@@ -32,6 +33,7 @@ interface StaffPortalProps {
   onSubmitDemand: (mealType: MealType, selectedStaffIds: string[]) => void;
   onSendChatMessage: (text: string, receiverId: string) => void;
   onSwitchToAdmin: () => void;
+  onUpdateAutoDemand: (userId: string, autoDemand: AutoDemandConfig) => void;
 }
 
 export const StaffPortal: React.FC<StaffPortalProps> = ({
@@ -52,6 +54,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
   onSubmitDemand,
   onSendChatMessage,
   onSwitchToAdmin,
+  onUpdateAutoDemand,
 }) => {
   const t = translations[lang];
 
@@ -78,6 +81,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
   // Demand Form Selection States
   const [activeMealTab, setActiveMealTab] = useState<MealType>('breakfast');
   const [selectedRoomMembers, setSelectedRoomMembers] = useState<string[]>([]); // List of staffIds
+  const [manualSelectedMembers, setManualSelectedMembers] = useState<string[]>([]); // List of roommate staffIds for manual demand
 
   // For expanding/collapsing live tracker details
   const [expandedMealType, setExpandedMealType] = useState<MealType | null>(null);
@@ -88,6 +92,55 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
   // Custom Toast System inside StaffPortal
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastType, setToastType] = useState<'success' | 'info' | 'error'>('success');
+
+  // State for acknowledging the congratulations screen
+  const [acknowledgedApproval, setAcknowledgedApproval] = useState<boolean>(() => {
+    if (!currentUser) return false;
+    return localStorage.getItem(`approved_ack_${currentUser.staffId.toLowerCase()}`) === 'true';
+  });
+
+  // Sync acknowledgement state when user changes
+  React.useEffect(() => {
+    if (currentUser) {
+      const ack = localStorage.getItem(`approved_ack_${currentUser.staffId.toLowerCase()}`) === 'true';
+      setAcknowledgedApproval(ack);
+      setSelectedAutoUser((prev) => prev || currentUser.id);
+    } else {
+      setAcknowledgedApproval(false);
+    }
+  }, [currentUser]);
+
+  // For selecting which roommate's auto demand is currently being edited
+  const [selectedAutoUser, setSelectedAutoUser] = useState<string>('');
+
+  const getWeeklySchedule = (targetUser: User) => {
+    if (targetUser?.autoDemand?.schedule) {
+      return targetUser.autoDemand.schedule;
+    }
+    const hasLegacy = targetUser?.autoDemand;
+    const initDay = hasLegacy ? {
+      breakfast: (targetUser.autoDemand as any).breakfast ?? true,
+      lunch: (targetUser.autoDemand as any).lunch ?? true,
+      dinner: (targetUser.autoDemand as any).dinner ?? true,
+    } : { breakfast: true, lunch: true, dinner: true };
+
+    return {
+      saturday: { ...initDay },
+      sunday: { ...initDay },
+      monday: { ...initDay },
+      tuesday: { ...initDay },
+      wednesday: { ...initDay },
+      thursday: { ...initDay },
+      friday: { ...initDay },
+    };
+  };
+
+  const handleAcknowledgeApproval = () => {
+    if (currentUser) {
+      localStorage.setItem(`approved_ack_${currentUser.staffId.toLowerCase()}`, 'true');
+      setAcknowledgedApproval(true);
+    }
+  };
 
   const showToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
     setToastMessage(message);
@@ -326,6 +379,57 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
     );
   };
 
+  const handleManualDemandSubmit = () => {
+    if (manualSelectedMembers.length === 0) {
+      showToast(
+        lang === 'bn' ? 'কমপক্ষে ১ জন সদস্য নির্বাচন করুন!' : 'Select at least 1 member!',
+        'error'
+      );
+      return;
+    }
+
+    // Verify selected members
+    const unapprovedMembers: string[] = [];
+    const unregisteredMembers: string[] = [];
+
+    for (const staffId of manualSelectedMembers) {
+      const uObj = users.find(u => u.staffId.toLowerCase() === staffId.toLowerCase());
+      if (!uObj) {
+        const staffName = preloadedStaff.find(s => s.staffId.toLowerCase() === staffId.toLowerCase())?.name || staffId;
+        unregisteredMembers.push(staffName);
+      } else if (uObj.status !== 'approved') {
+        unapprovedMembers.push(uObj.name);
+      }
+    }
+
+    if (unregisteredMembers.length > 0) {
+      showToast(
+        lang === 'bn'
+          ? `রেজিস্ট্রেশন করা নেই: ${unregisteredMembers.join(', ')}`
+          : `Not registered: ${unregisteredMembers.join(', ')}`,
+        'error'
+      );
+      return;
+    }
+
+    if (unapprovedMembers.length > 0) {
+      showToast(
+        lang === 'bn'
+          ? `অনুমোদন করা হয়নি: ${unapprovedMembers.join(', ')}`
+          : `Not approved yet: ${unapprovedMembers.join(', ')}`,
+        'error'
+      );
+      return;
+    }
+
+    onSubmitDemand(activeMealTab, manualSelectedMembers);
+    setManualSelectedMembers([]);
+    showToast(
+      lang === 'bn' ? 'ম্যানুয়াল মিল ডিমান্ড সফলভাবে সাবমিট করা হয়েছে!' : 'Manual meal demand submitted successfully!',
+      'success'
+    );
+  };
+
   // Handle file uploads converting to Base64 with high-quality compression to stay under Firestore document limits
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => {
     const file = e.target.files?.[0];
@@ -391,6 +495,76 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
       case 'dinner': return <Flame className="w-5 h-5 text-yellow-500" />;
     }
   };
+
+  // RENDER APPROVED CONGRATULATIONS VIEW
+  if (currentUser && currentUser.status === 'approved' && !acknowledgedApproval) {
+    return (
+      <div className="w-full max-w-md sm:max-w-xl md:max-w-2xl mx-auto my-0 sm:my-12 bg-white sm:bg-white/95 backdrop-blur-none sm:backdrop-blur border-0 sm:border border-emerald-100 rounded-none sm:rounded-3xl shadow-none sm:shadow-2xl p-6 sm:p-10 text-center transition-all duration-300 min-h-[calc(100vh-80px)] sm:min-h-0 flex flex-col justify-center animate-in zoom-in-95 duration-300 animate-duration-500" id="approved-congratulations-card">
+        {/* Large Green Circle with Glowing Effect & Check emoji */}
+        <div className="relative w-28 h-28 mx-auto mb-8 flex items-center justify-center">
+          {/* Animated pulsing outer ring */}
+          <div className="absolute inset-0 bg-emerald-100 rounded-full animate-ping opacity-30"></div>
+          {/* Green circle */}
+          <div className="relative w-24 h-24 bg-gradient-to-tr from-emerald-600 to-teal-400 rounded-full flex items-center justify-center shadow-lg border-4 border-white">
+            <span className="text-4xl filter drop-shadow">✅</span>
+          </div>
+        </div>
+
+        {/* Congratulations Header */}
+        <h3 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-emerald-600 mb-3 tracking-tight">
+          {lang === 'bn' ? '🎉 অভিনন্দন! 🎉' : '🎉 Congratulations! 🎉'}
+        </h3>
+        
+        <h4 className="text-lg sm:text-xl font-bold text-slate-800 mb-4 animate-pulse">
+          {lang === 'bn' ? 'আপনার অ্যাকাউন্টটি অনুমোদিত হয়েছে!' : 'Your account has been approved!'}
+        </h4>
+
+        <p className="text-sm sm:text-base text-slate-600 mb-8 max-w-md mx-auto leading-relaxed">
+          {lang === 'bn' 
+            ? 'অভিনন্দন! এডমিন আপনার অ্যাকাউন্টটি যাচাই করে অনুমোদন দিয়েছেন। এখন আপনি ড্যাশবোর্ডে প্রবেশ করে খাবার ডিমান্ড করতে পারবেন।' 
+            : 'Congratulations! The Admin has verified and approved your account. You can now access the dashboard to manage and submit your food demands.'}
+        </p>
+
+        {/* User Details Box */}
+        <div className="bg-emerald-50/30 border border-emerald-100 rounded-2xl p-5 sm:p-6 text-left mb-8 space-y-3 max-w-md mx-auto shadow-sm">
+          <div className="text-sm sm:text-base text-slate-600 flex justify-between items-center pb-2 border-b border-emerald-100/50">
+            <span className="font-bold text-slate-800">{lang === 'bn' ? 'নাম:' : 'Name:'}</span> 
+            <span className="font-medium text-slate-700">{currentUser.name}</span>
+          </div>
+          <div className="text-sm sm:text-base text-slate-600 flex justify-between items-center pb-2 border-b border-emerald-100/50">
+            <span className="font-bold text-slate-800">{lang === 'bn' ? 'স্টাফ আইডি:' : 'Staff ID:'}</span> 
+            <span className="font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">{currentUser.staffId}</span>
+          </div>
+          <div className="text-sm sm:text-base text-slate-600 flex justify-between items-center pb-2 border-b border-emerald-100/50">
+            <span className="font-bold text-slate-800">{lang === 'bn' ? 'রুম নাম্বার:' : 'Room Number:'}</span> 
+            <span className="font-bold text-slate-700">Room {currentUser.roomNumber}</span>
+          </div>
+          <div className="text-sm sm:text-base text-slate-600 flex justify-between items-center">
+            <span className="font-bold text-slate-800">{lang === 'bn' ? 'ডিপার্টমেন্ট:' : 'Department:'}</span> 
+            <span className="font-medium text-slate-700">{currentUser.department}</span>
+          </div>
+        </div>
+
+        {/* Action Button */}
+        <div className="space-y-3 max-w-md mx-auto">
+          <button
+            onClick={handleAcknowledgeApproval}
+            className="w-full bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-extrabold py-4 rounded-2xl transition duration-200 shadow-lg shadow-emerald-200/50 hover:shadow-emerald-300/50 cursor-pointer text-sm sm:text-base flex items-center justify-center gap-2"
+          >
+            <Sparkles className="w-5 h-5 animate-bounce" />
+            <span>{lang === 'bn' ? 'ড্যাশবোর্ডে প্রবেশ করুন' : 'Enter Dashboard'}</span>
+          </button>
+          
+          <button
+            onClick={onLogout}
+            className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-3 rounded-2xl transition cursor-pointer text-xs sm:text-sm"
+          >
+            {t.logout}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // RENDER PENDING APPROVAL VIEW
   if (currentUser && currentUser.status === 'pending') {
@@ -859,43 +1033,460 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                         referrerPolicy="no-referrer"
                         title={lang === 'bn' ? 'ছবি বড় করে দেখতে ক্লিক করুন' : 'Click to enlarge image'}
                       />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none"></div>
-                      
-                      {/* Zoom glass overlay */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setViewingPhotoUrl(food.img);
-                        }}
-                        className="absolute right-1.5 bottom-1.5 bg-black/50 hover:bg-black/80 text-white p-1 rounded-lg backdrop-blur-xs transition cursor-pointer z-10"
-                        title={lang === 'bn' ? 'ছবি বড় করে দেখতে ক্লিক করুন' : 'Click to enlarge image'}
-                      >
-                        <Search className="w-3.5 h-3.5 text-white/90" />
-                      </button>
-
-                      {/* Active Status Ribbon */}
-                      {isSelectedCategory && (
-                        <span className="absolute top-1 left-1 bg-orange-600 text-white text-[7px] font-black tracking-widest px-1.5 py-0.5 rounded-md uppercase shadow">
-                          Active
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Food Info text */}
-                    <div className="p-2 bg-white space-y-0.5">
-                      <h4 className="text-[10px] font-black text-slate-800 tracking-tight truncate group-hover:text-orange-600 transition-colors">
-                        {lang === 'bn' ? food.titleBn : food.titleEn}
-                      </h4>
-                      <p className="text-[8px] text-slate-400 line-clamp-2 leading-tight">
-                        {lang === 'bn' ? food.descBn : food.descEn}
-                      </p>
+                      {/* Text overlay on image bottom */}
+                      <div className="absolute bottom-1.5 left-2 right-2 text-white z-10 leading-tight">
+                        <div className="font-black text-[10px] sm:text-[11px] truncate">
+                          {lang === 'bn' ? food.titleBn : food.titleEn}
+                        </div>
+                        <div className="text-[8px] opacity-90 truncate font-semibold mt-0.5">
+                          {lang === 'bn' ? food.descBn : food.descEn}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </div>
           </div>
+
+          {/* AUTO DEMAND CONFIGURATION PANEL */}
+          {currentUser && (() => {
+            // Get all room members in this room (both preloaded and registered)
+            const roomMembers = getRoomMembers();
+            
+            // Get all approved registered users in this room
+            const approvedRoommates = users.filter(u => u.status === 'approved' && u.roomNumber === currentUser.roomNumber);
+            
+            // Determine active target user for configuration
+            const targetUserId = selectedAutoUser || currentUser.id;
+            const targetUser = approvedRoommates.find(u => u.id === targetUserId) || currentUser;
+            const schedule = getWeeklySchedule(targetUser);
+            
+            const daysOfWeekList = [
+              { key: 'saturday', labelEn: 'Saturday', labelBn: 'শনিবার' },
+              { key: 'sunday', labelEn: 'Sunday', labelBn: 'রবিবার' },
+              { key: 'monday', labelEn: 'Monday', labelBn: 'সোমবার' },
+              { key: 'tuesday', labelEn: 'Tuesday', labelBn: 'মঙ্গলবার' },
+              { key: 'wednesday', labelEn: 'Wednesday', labelBn: 'বুধবার' },
+              { key: 'thursday', labelEn: 'Thursday', labelBn: 'বৃহস্পতিবার' },
+              { key: 'friday', labelEn: 'Friday', labelBn: 'শুক্রবার' },
+            ] as const;
+
+            const toggleMeal = (dayKey: typeof daysOfWeekList[number]['key'], meal: 'breakfast' | 'lunch' | 'dinner') => {
+              const updatedSchedule = {
+                ...schedule,
+                [dayKey]: {
+                  ...schedule[dayKey],
+                  [meal]: !schedule[dayKey][meal]
+                }
+              };
+              const updatedConfig: AutoDemandConfig = {
+                enabled: targetUser.autoDemand?.enabled ?? true,
+                schedule: updatedSchedule,
+              };
+              onUpdateAutoDemand(targetUser.id, updatedConfig);
+              
+              const mealLabel = meal === 'breakfast' 
+                ? (lang === 'bn' ? 'সকাল' : 'Breakfast')
+                : meal === 'lunch'
+                ? (lang === 'bn' ? 'দুপুর' : 'Lunch')
+                : (lang === 'bn' ? 'রাত' : 'Dinner');
+              
+              const dayLabel = daysOfWeekList.find(d => d.key === dayKey)?.[lang === 'bn' ? 'labelBn' : 'labelEn'];
+              
+              showToast(
+                lang === 'bn'
+                  ? `${targetUser.name} - এর জন্য ${dayLabel} - এ ${mealLabel} এর অটো ডিমান্ড ${!schedule[dayKey][meal] ? 'সচল' : 'বন্ধ'} করা হয়েছে।`
+                  : `${targetUser.name}'s ${dayLabel} - ${mealLabel} auto-demand ${!schedule[dayKey][meal] ? 'activated' : 'deactivated'}.`,
+                'info'
+              );
+            };
+
+            const handleSetAll = (status: boolean) => {
+              const updatedSchedule: any = {};
+              daysOfWeekList.forEach((day) => {
+                updatedSchedule[day.key] = {
+                  breakfast: status,
+                  lunch: status,
+                  dinner: status
+                };
+              });
+              const updatedConfig: AutoDemandConfig = {
+                enabled: targetUser.autoDemand?.enabled ?? true,
+                schedule: updatedSchedule,
+              };
+              onUpdateAutoDemand(targetUser.id, updatedConfig);
+              showToast(
+                lang === 'bn'
+                  ? `${targetUser.name} - এর জন্য পুরো সপ্তাহের সব বেলার মিল ${status ? 'চালু' : 'বন্ধ'} করা হয়েছে।`
+                  : `Successfully toggled all weekly meals ${status ? 'ON' : 'OFF'} for ${targetUser.name}.`,
+                'success'
+              );
+            };
+
+            const toggleAutoDemandEnabled = () => {
+              const currentEnabled = targetUser.autoDemand?.enabled ?? false;
+              const updatedConfig: AutoDemandConfig = {
+                enabled: !currentEnabled,
+                schedule: schedule
+              };
+              onUpdateAutoDemand(targetUser.id, updatedConfig);
+              showToast(
+                lang === 'bn'
+                  ? `${targetUser.name} - এর অটো ডিমান্ড সার্ভিস ${!currentEnabled ? 'চালু' : 'বন্ধ'} করা হয়েছে।`
+                  : `Auto Demand Service for ${targetUser.name} has been ${!currentEnabled ? 'enabled' : 'disabled'}.`,
+                !currentEnabled ? 'success' : 'info'
+              );
+            };
+
+            const handleActivateRoommate = async (member: { staffId: string; name: string; department: string }) => {
+              const activatedUser: User = {
+                id: `user-${Date.now()}`,
+                name: member.name,
+                staffId: member.staffId,
+                mobile: '01700000000',
+                whatsapp: '01700000000',
+                roomNumber: currentUser.roomNumber,
+                department: member.department || 'General',
+                idCardFront: 'https://via.placeholder.com/400x250?text=ID+Card+Front',
+                idCardBack: 'https://via.placeholder.com/400x250?text=ID+Card+Back',
+                status: 'approved', // instantly approved
+                createdAt: new Date().toISOString(),
+                autoDemand: {
+                  enabled: true,
+                  schedule: {
+                    saturday: { breakfast: true, lunch: true, dinner: true },
+                    sunday: { breakfast: true, lunch: true, dinner: true },
+                    monday: { breakfast: true, lunch: true, dinner: true },
+                    tuesday: { breakfast: true, lunch: true, dinner: true },
+                    wednesday: { breakfast: true, lunch: true, dinner: true },
+                    thursday: { breakfast: true, lunch: true, dinner: true },
+                    friday: { breakfast: true, lunch: true, dinner: true },
+                  }
+                }
+              };
+
+              try {
+                await saveDocToFirestore('users_db', activatedUser);
+                setSelectedAutoUser(activatedUser.id);
+                showToast(
+                  lang === 'bn'
+                    ? `${member.name} - এর অ্যাকাউন্ট সফলভাবে সক্রিয় করা হয়েছে! আপনি এখন তার শিডিউল সেট করতে পারবেন।`
+                    : `Successfully activated account for ${member.name}! You can now customize their schedule.`,
+                  'success'
+                );
+              } catch (err) {
+                console.error("Failed to activate roommate:", err);
+                showToast("Failed to activate roommate account.", "error");
+              }
+            };
+
+            const weekdayKeys = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+            const currentDayKey = weekdayKeys[new Date().getDay()];
+
+            return (
+              <div className="bg-white border border-indigo-100 rounded-3xl p-5 sm:p-6 shadow-xl space-y-6" id="staff-auto-demand-panel">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-indigo-50 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600">
+                      <Sparkles className="w-5 h-5 animate-pulse" id="sparkles-icon" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black text-slate-800 tracking-tight flex items-center gap-1.5">
+                        {lang === 'bn' ? 'সাপ্তাহিক অটো ডিমান্ড শিডিউলার' : 'Weekly Auto Demand Scheduler'}
+                        <span className="text-[9px] bg-indigo-50 text-indigo-700 font-extrabold px-2 py-0.5 rounded-lg border border-indigo-200">
+                          {lang === 'bn' ? '৭ দিন সচল' : '7 Days Active'}
+                        </span>
+                      </h3>
+                      <p className="text-[10px] text-slate-400 font-medium leading-tight text-left">
+                        {lang === 'bn' ? 'রুমের যে কেউ সবার জন্য অটো ডিমান্ড এবং সাতদিনের শিডিউল পছন্দমত ঠিক করতে পারবেন।' : 'Manage 7-day automatic schedule and daily meals for anyone in your room.'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ROOMMATE ID SELECTOR GRID / CARDS */}
+                <div className="space-y-3">
+                  <div className="text-[11px] font-extrabold text-slate-600 tracking-wider uppercase flex items-center justify-between">
+                    <span>{lang === 'bn' ? 'রুমের সদস্য নির্বাচন করুন (Select Roommate):' : 'Select Room Member to Configure:'}</span>
+                    <span className="text-[10px] font-mono text-indigo-600">{lang === 'bn' ? `রুম নং: ${currentUser.roomNumber}` : `Room: ${currentUser.roomNumber}`}</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    {roomMembers.map((member) => {
+                      const registeredUser = users.find(u => u.staffId.toLowerCase() === member.staffId.toLowerCase());
+                      const isRegistered = !!registeredUser;
+                      const isApproved = registeredUser?.status === 'approved';
+                      const isPending = registeredUser?.status === 'pending';
+                      
+                      const isActiveTarget = isRegistered 
+                        ? targetUserId === registeredUser.id 
+                        : false;
+
+                      return (
+                        <div
+                          key={member.staffId}
+                          onClick={() => {
+                            if (isApproved && registeredUser) {
+                              setSelectedAutoUser(registeredUser.id);
+                            }
+                          }}
+                          className={`p-3 rounded-2xl border text-left flex items-center gap-2.5 transition-all relative overflow-hidden ${
+                            isApproved
+                              ? isActiveTarget
+                                ? 'bg-indigo-600 border-transparent text-white shadow-lg scale-[1.02]'
+                                : 'bg-indigo-50/20 hover:bg-indigo-50/50 border-indigo-100 text-slate-700 cursor-pointer'
+                              : 'bg-slate-50 border-slate-200 text-slate-500 opacity-80'
+                          }`}
+                        >
+                          {/* Roommate Face Photo / Initial Avatar */}
+                          {registeredUser?.userPhoto ? (
+                            <img
+                              src={registeredUser.userPhoto}
+                              alt={member.name}
+                              className={`w-9 h-9 rounded-full object-cover border-2 transition-all flex-shrink-0 ${
+                                isActiveTarget ? 'border-white/40' : 'border-indigo-100'
+                              }`}
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div
+                              className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${
+                                isActiveTarget ? 'bg-white/20 text-white' : 'bg-indigo-50 text-indigo-600 border border-indigo-100 shadow-sm'
+                              }`}
+                            >
+                              {member.name.charAt(0)}
+                            </div>
+                          )}
+
+                          <div className="flex-1 min-w-0 space-y-0.5">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className={`text-[11px] font-black truncate leading-none ${isActiveTarget ? 'text-white' : 'text-slate-800'}`}>
+                                {member.name}
+                              </span>
+                            </div>
+
+                            <div className={`text-[9px] font-mono leading-none ${isActiveTarget ? 'text-indigo-100' : 'text-slate-400'}`}>
+                              ID: {member.staffId}
+                            </div>
+
+                            <div className="flex items-center gap-1.5 pt-0.5">
+                              {/* Status badges */}
+                              {isApproved ? (
+                                <span className={`text-[8px] font-bold px-1 rounded-md leading-none ${isActiveTarget ? 'bg-white/20 text-white' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+                                  {lang === 'bn' ? 'সক্রিয়' : 'Active'}
+                                </span>
+                              ) : isPending ? (
+                                <span className="text-[8px] font-bold px-1 rounded-md leading-none bg-amber-50 text-amber-700 border border-amber-200">
+                                  {lang === 'bn' ? 'অপেক্ষমাণ' : 'Pending'}
+                                </span>
+                              ) : (
+                                <span className="text-[8px] font-bold px-1 rounded-md leading-none bg-slate-100 text-slate-500 border border-slate-200">
+                                  {lang === 'bn' ? 'নিবন্ধিত নয়' : 'Unregistered'}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Action Button for Unregistered Preloaded staff */}
+                            {!isRegistered && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleActivateRoommate(member);
+                                }}
+                                className="mt-1 w-full bg-indigo-500 hover:bg-indigo-600 text-white text-[9px] font-black py-1 px-1.5 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                              >
+                                <UserCheck className="w-2.5 h-2.5" />
+                                {lang === 'bn' ? 'সক্রিয় করুন' : 'Activate'}
+                              </button>
+                            )}
+
+                            {isPending && (
+                              <div className="text-[9px] text-amber-600 font-extrabold italic">
+                                {lang === 'bn' ? 'অনুমোদনের অপেক্ষা...' : 'Awaiting approval...'}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+
+                {/* TARGET USER DETAILS & SCHEDULER SECTION */}
+                <div className="border-t border-slate-100 pt-5 space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50/80 p-4 rounded-2xl border border-slate-100">
+                    <div className="text-left space-y-1">
+                      <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                        {lang === 'bn' ? 'শিডিউল পরিবর্তন করা হচ্ছে:' : 'Modifying schedule for:'}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-black text-slate-800">{targetUser.name}</span>
+                        <span className="text-[10px] font-mono bg-indigo-50 border border-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md">
+                          ID: {targetUser.staffId}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Auto Demand Switch for Target User */}
+                    <div className="flex items-center gap-3 bg-white px-4 py-2.5 rounded-xl border border-slate-100 shadow-sm">
+                      <span className="text-xs font-black text-slate-700">
+                        {lang === 'bn' ? 'অটো ডিমান্ড সেবা:' : 'Auto Demand Status:'}
+                      </span>
+                      <button
+                        onClick={toggleAutoDemandEnabled}
+                        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                          targetUser.autoDemand?.enabled ? 'bg-indigo-600' : 'bg-slate-200'
+                        }`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                            targetUser.autoDemand?.enabled ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                      <span className={`text-[11px] font-black ${targetUser.autoDemand?.enabled ? 'text-indigo-600' : 'text-slate-400'}`}>
+                        {targetUser.autoDemand?.enabled 
+                          ? (lang === 'bn' ? 'চালু' : 'Enabled') 
+                          : (lang === 'bn' ? 'বন্ধ' : 'Disabled')}
+                      </span>
+                    </div>
+                  </div>
+
+                  {targetUser.autoDemand?.enabled ? (
+                    <div className="space-y-5 animate-in fade-in duration-300">
+                      {/* Bulk actions */}
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-[11px] font-extrabold text-slate-500">
+                          {lang === 'bn' ? 'দ্রুত পরিবর্তন:' : 'Quick Actions:'}
+                        </span>
+                        <button
+                          onClick={() => handleSetAll(true)}
+                          className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 text-indigo-700 text-[10px] font-black px-3 py-1.5 rounded-xl transition duration-200 cursor-pointer"
+                        >
+                          {lang === 'bn' ? 'সব মিল চালু করুন' : 'Set All ON'}
+                        </button>
+                        <button
+                          onClick={() => handleSetAll(false)}
+                          className="bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black px-3 py-1.5 rounded-xl transition duration-200 cursor-pointer"
+                        >
+                          {lang === 'bn' ? 'সব মিল বন্ধ করুন' : 'Set All OFF'}
+                        </button>
+                      </div>
+
+                      {/* 7-DAY BENTO TIMETABLE GRID */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                        {daysOfWeekList.map((day) => {
+                          const daySchedule = schedule[day.key] || { breakfast: false, lunch: false, dinner: false };
+                          
+                          return (
+                            <div 
+                              key={day.key} 
+                              className={`bg-slate-50/50 border border-slate-100 rounded-3xl p-4 space-y-4 hover:shadow-md transition-all duration-300 relative overflow-hidden ${
+                                day.key === currentDayKey ? 'ring-2 ring-indigo-500 bg-indigo-50/10 border-indigo-100' : ''
+                              }`}
+                            >
+                              {/* Highlight Today */}
+                              {day.key === currentDayKey && (
+                                <div className="absolute top-0 right-0 bg-indigo-600 text-white text-[8px] font-extrabold px-2.5 py-1 rounded-bl-2xl uppercase tracking-wider animate-pulse">
+                                  {lang === 'bn' ? 'আজ' : 'Today'}
+                                </div>
+                              )}
+
+                              {/* Day Label with elegant badge */}
+                              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                                <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                                  <span className="text-xs text-indigo-500">📅</span>
+                                  <span>{lang === 'bn' ? day.labelBn : day.labelEn}</span>
+                                </span>
+                              </div>
+
+                              <div className="flex flex-col gap-2">
+                                {/* Breakfast */}
+                                <button
+                                  onClick={() => toggleMeal(day.key, 'breakfast')}
+                                  className={`w-full py-2 px-3 rounded-xl border text-left flex items-center justify-between text-[10px] font-black transition-all duration-200 cursor-pointer ${
+                                    daySchedule.breakfast 
+                                      ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm' 
+                                      : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600'
+                                  }`}
+                                >
+                                  <span className="flex items-center gap-2">
+                                    <span>🍳</span>
+                                    <span>{lang === 'bn' ? 'সকাল' : 'Breakfast'}</span>
+                                  </span>
+                                  {daySchedule.breakfast && <span className="text-[9px] font-black">✓</span>}
+                                </button>
+
+                                {/* Lunch */}
+                                <button
+                                  onClick={() => toggleMeal(day.key, 'lunch')}
+                                  className={`w-full py-2 px-3 rounded-xl border text-left flex items-center justify-between text-[10px] font-black transition-all duration-200 cursor-pointer ${
+                                    daySchedule.lunch 
+                                      ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm' 
+                                      : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600'
+                                  }`}
+                                >
+                                  <span className="flex items-center gap-2">
+                                    <span>🍛</span>
+                                    <span>{lang === 'bn' ? 'দুপুর' : 'Lunch'}</span>
+                                  </span>
+                                  {daySchedule.lunch && <span className="text-[9px] font-black">✓</span>}
+                                </button>
+
+                                {/* Dinner */}
+                                <button
+                                  onClick={() => toggleMeal(day.key, 'dinner')}
+                                  className={`w-full py-2 px-3 rounded-xl border text-left flex items-center justify-between text-[10px] font-black transition-all duration-200 cursor-pointer ${
+                                    daySchedule.dinner 
+                                      ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm' 
+                                      : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600'
+                                  }`}
+                                >
+                                  <span className="flex items-center gap-2">
+                                    <span>🍲</span>
+                                    <span>{lang === 'bn' ? 'রাত' : 'Dinner'}</span>
+                                  </span>
+                                  {daySchedule.dinner && <span className="text-[9px] font-black">✓</span>}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="bg-indigo-50/50 rounded-2xl p-4 text-[11px] text-indigo-950 border border-indigo-100 flex gap-2.5 items-start leading-relaxed shadow-sm">
+                        <span className="text-sm">💡</span>
+                        <div className="space-y-1 text-left">
+                          <strong className="block text-indigo-900 font-extrabold">
+                            {lang === 'bn' ? 'সর্বোত্তম সমাধান বিবরণ (How it works):' : 'System Information:'}
+                          </strong>
+                          <p>
+                            {lang === 'bn'
+                              ? 'এই সিস্টেমে রুমের মেম্বারদের চাহিদা সম্পূর্ণ আলাদা থাকবে। রুমে ১ থেকে ৪ জন মেম্বার থাকলে প্রত্যেকেই নিজের বা রুমমেটের জন্য ৭ দিনের বারের খাবার (শনিবার থেকে শুক্রবার) কাস্টম উপায়ে নির্দিষ্ট করতে পারবেন। সিস্টেমটি সময়সীমার (Deadline) পূর্বে স্বয়ংক্রিয়ভাবে চাহিদাপত্র ডাটাবেজে যুক্ত করবে।'
+                              : 'Each room member operates on an independent custom schedule. Roommates can manage individual 7-day timetables (Saturday to Friday) safely without overlapping or interfering.'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-indigo-50/30 rounded-2xl p-6 border border-dashed border-indigo-200 text-center space-y-2">
+                      <div className="text-xl">🤖</div>
+                      <div className="font-extrabold text-xs text-indigo-950">
+                        {lang === 'bn' ? `${targetUser.name} - এর জন্য অটো ডিমান্ড সার্ভিস বর্তমানে বন্ধ` : `Auto Demand Service for ${targetUser.name} is currently inactive`}
+                      </div>
+                      <p className="text-[10px] text-slate-500 max-w-md mx-auto leading-relaxed">
+                        {lang === 'bn' 
+                          ? 'এটি সচল করলে সিস্টেম নির্ধারিত খাবার বেলার সময়ের ডেডলাইন শেষ হওয়ার পূর্বেই স্বয়ংক্রিয়ভাবে তার ডিমান্ড ডাটাবেজে সাবমিট করে দেবে।'
+                          : 'Enabling it allows the server engine to automatically submit their custom demands right before each meal’s deadline.'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
           
           {/* DEMAND SUBMISSION BLOCK */}
           <div className="bg-white border border-orange-100 rounded-2xl p-4 sm:p-5 shadow-md space-y-4" id="staff-demand-system">
@@ -922,6 +1513,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                     onClick={() => {
                       setActiveMealTab(mType);
                       setSelectedRoomMembers([]);
+                      setManualSelectedMembers([]);
                     }}
                     className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
                       activeMealTab === mType
@@ -952,6 +1544,129 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                 <div className="text-[10px] text-slate-400 font-medium leading-normal">{t.roomLockNotice}</div>
               </div>
             </div>
+
+            {/* MANUAL DEMAND SECTION FOR OTHER MEMBERS */}
+            {!isRoomLocked(activeMealTab) && isTimeActive(activeMealTab) && (
+              <div className="border border-indigo-100 bg-indigo-50/15 rounded-2xl p-4 space-y-3.5 shadow-sm" id="manual-demand-block">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Utensils className="w-4.5 h-4.5 text-indigo-600 animate-bounce" />
+                    <span className="text-xs font-black text-indigo-950">
+                      {lang === 'bn' ? 'মেনুয়ালি ডিমান্ড করার অপশন' : 'Manual Demand Option'}
+                    </span>
+                  </div>
+                  <span className="text-[9px] font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    {lang === 'bn' ? `${t[activeMealTab]} এর জন্য` : `For ${activeMealTab}`}
+                  </span>
+                </div>
+
+                {/* Other room members with checkbox */}
+                {(() => {
+                  const otherMembers = getRoomMembers().filter(
+                    (m) => m.staffId.toLowerCase() !== currentUser?.staffId.toLowerCase()
+                  );
+
+                  if (otherMembers.length === 0) {
+                    return (
+                      <div className="text-[11px] text-indigo-500 italic py-2 text-center">
+                        {lang === 'bn' ? 'রুমে অন্যান্য কোনো সদস্য নেই।' : 'No other room members found.'}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-3">
+                      <div className="text-[11px] font-bold text-slate-500">
+                        {lang === 'bn' ? 'রুমের অন্যান্য সদস্য তালিকা (টিক খালি ঘর):' : 'Other room members list (Empty tick box):'}
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {otherMembers.map((member) => {
+                          const isSelected = manualSelectedMembers.includes(member.staffId);
+                          const registeredUser = users.find(u => u.staffId.toLowerCase() === member.staffId.toLowerCase());
+                          const isApprovedUser = registeredUser?.status === 'approved';
+
+                          return (
+                            <button
+                              key={member.staffId}
+                              type="button"
+                              onClick={() => {
+                                if (manualSelectedMembers.includes(member.staffId)) {
+                                  setManualSelectedMembers(manualSelectedMembers.filter(id => id !== member.staffId));
+                                } else {
+                                  setManualSelectedMembers([...manualSelectedMembers, member.staffId]);
+                                }
+                              }}
+                              className={`p-3 rounded-xl border text-left flex items-center justify-between transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'bg-gradient-to-tr from-indigo-600 to-indigo-500 border-transparent text-white shadow'
+                                  : 'bg-white hover:bg-indigo-50/30 border-indigo-100 text-slate-700'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5">
+                                {registeredUser?.userPhoto ? (
+                                  <img
+                                    src={registeredUser.userPhoto}
+                                    alt={member.name}
+                                    className={`w-8 h-8 rounded-full object-cover border transition-all ${
+                                      isSelected ? 'border-white' : 'border-indigo-100'
+                                    }`}
+                                    referrerPolicy="no-referrer"
+                                  />
+                                ) : (
+                                  <div
+                                    className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
+                                      isSelected ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-600'
+                                    }`}
+                                  >
+                                    {member.name.charAt(0)}
+                                  </div>
+                                )}
+                                <div>
+                                  <div className="text-xs font-black leading-tight flex items-center gap-1">
+                                    {member.name}
+                                    {registeredUser && (
+                                      <span 
+                                        className={`w-1.5 h-1.5 rounded-full ${
+                                          isApprovedUser ? 'bg-emerald-400' : 'bg-amber-400'
+                                        }`} 
+                                      />
+                                    )}
+                                  </div>
+                                  <div className={`text-[9px] font-mono mt-0.5 ${isSelected ? 'text-indigo-100' : 'text-slate-400'}`}>
+                                    ID: {member.staffId}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Ticket check-box */}
+                              <div>
+                                {isSelected ? (
+                                  <div className="w-4 h-4 rounded-full bg-white text-indigo-600 flex items-center justify-center shadow">
+                                    <CheckSquare className="w-3.5 h-3.5" />
+                                  </div>
+                                ) : (
+                                  <Square className="w-4 h-4 text-indigo-300" />
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Submit Demand button */}
+                      <button
+                        type="button"
+                        onClick={handleManualDemandSubmit}
+                        className="mt-2 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-xl transition shadow flex items-center justify-center gap-2 active:scale-[0.99] cursor-pointer text-xs"
+                      >
+                        <Utensils className="w-4 h-4 text-white" />
+                        <span>{lang === 'bn' ? 'ডিমান্ড করুন' : 'Submit Demand'}</span>
+                      </button>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
 
             {/* Locked vs Open Demand Logic */}
             {isRoomLocked(activeMealTab) ? (

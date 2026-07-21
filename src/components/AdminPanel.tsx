@@ -144,8 +144,38 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }, 3000);
   };
 
+  const copyTextToClipboard = (text: string): boolean => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (err) {
+      console.warn("navigator.clipboard failed, using fallback:", err);
+    }
+
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.top = "0";
+    textArea.style.left = "0";
+    textArea.style.position = "fixed";
+    textArea.style.opacity = "0";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+
+    let success = false;
+    try {
+      success = document.execCommand("copy");
+    } catch (err) {
+      console.error("execCommand copy fallback failed:", err);
+    }
+    document.body.removeChild(textArea);
+    return success;
+  };
+
   const handleCopyIdOnly = (staffId: string, name: string) => {
-    navigator.clipboard.writeText(staffId);
+    copyTextToClipboard(staffId);
     showToast(lang === 'bn' ? `আইডি "${staffId}" কপি হয়েছে!` : `ID "${staffId}" copied!`, 'success');
 
     // Automatically add to draft clipboard sheet for ease of accumulation
@@ -164,7 +194,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleCopyWithAll = (staffId: string, name: string, room: string) => {
     const formattedText = `${lang === 'bn' ? 'নাম' : 'Name'}: ${name} | ${lang === 'bn' ? 'রুম' : 'Room'}: ${room} | ID: ${staffId}`;
-    navigator.clipboard.writeText(formattedText);
+    copyTextToClipboard(formattedText);
     showToast(lang === 'bn' ? 'নাম, রুম ও আইডি একসঙ্গে কপি হয়েছে!' : 'Name, Room & ID copied together!', 'success');
 
     const exists = clipboardItems.some((item) => item.staffId.toLowerCase() === staffId.toLowerCase());
@@ -185,7 +215,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const formattedText = clipboardItems
       .map((item, idx) => `${idx + 1}. ${lang === 'bn' ? 'নাম' : 'Name'}: ${item.name} | ${lang === 'bn' ? 'রুম' : 'Room'}: ${item.room} | ID: ${item.staffId}`)
       .join('\n');
-    navigator.clipboard.writeText(formattedText);
+    copyTextToClipboard(formattedText);
     showToast(lang === 'bn' ? 'ক্লিপবোর্ডের সব ডাটা একসঙ্গে কপি হয়েছে!' : 'All clipboard records copied together!', 'success');
   };
 
@@ -212,12 +242,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleCopyDateMealReportCombined = (onlyApprovedAndServed: boolean) => {
-    const list = getSelectedReportStaffList();
-    const filteredList = onlyApprovedAndServed 
-      ? list.filter(item => item.status === 'approved' || item.status === 'served')
-      : list;
+    const list = getSelectedReportStaffList(onlyApprovedAndServed);
 
-    if (filteredList.length === 0) {
+    if (list.length === 0) {
       showToast(
         lang === 'bn' 
           ? 'কপি করার মতো কোনো বুকিং রেকর্ড পাওয়া যায়নি!' 
@@ -237,9 +264,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       formattedText = `📋 মিল বুকিং রিপোর্ট\n`;
       formattedText += `তারিখ: ${selectedReportDate}\n`;
       formattedText += `মিল: ${mealLabel}\n`;
-      formattedText += `মোট সদস্য: ${filteredList.length} জন\n`;
+      formattedText += `মোট সদস্য: ${list.length} জন\n`;
       formattedText += `--------------------------------------\n`;
-      filteredList.forEach((item, idx) => {
+      list.forEach((item, idx) => {
         const statusText = item.status === 'approved' ? 'অনুমোদিত' : item.status === 'served' ? 'পরিবেশিত' : item.status === 'pending' ? 'অপেক্ষমাণ' : 'বাতিল';
         formattedText += `${idx + 1}. নাম: ${item.name} | আইডি: ${item.staffId} | রুম: ${item.roomNumber} | অবস্থা: ${statusText}\n`;
       });
@@ -249,31 +276,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       formattedText = `📋 Meal Booking Report\n`;
       formattedText += `Date: ${selectedReportDate}\n`;
       formattedText += `Meal: ${mealLabel}\n`;
-      formattedText += `Total Members: ${filteredList.length}\n`;
+      formattedText += `Total Members: ${list.length}\n`;
       formattedText += `--------------------------------------\n`;
-      filteredList.forEach((item, idx) => {
+      list.forEach((item, idx) => {
         formattedText += `${idx + 1}. Name: ${item.name} | ID: ${item.staffId} | Room: ${item.roomNumber} | Status: ${item.status.toUpperCase()}\n`;
       });
       formattedText += `--------------------------------------\n`;
       formattedText += `Report Generated: ${new Date().toLocaleTimeString()}\n`;
     }
 
-    navigator.clipboard.writeText(formattedText);
-    showToast(
-      lang === 'bn' 
-        ? `${filteredList.length} জন সদস্যের তথ্য কপি হয়েছে!` 
-        : `Copied data for ${filteredList.length} members!`, 
-      'success'
-    );
+    const success = copyTextToClipboard(formattedText);
+    if (success) {
+      showToast(
+        lang === 'bn' 
+          ? `${list.length} জন সদস্যের তথ্য কপি হয়েছে!` 
+          : `Copied data for ${list.length} members!`, 
+        'success'
+      );
+    } else {
+      showToast(
+        lang === 'bn' 
+          ? 'কপি ব্যর্থ হয়েছে! অনুগ্রহ করে আবার চেষ্টা করুন।' 
+          : 'Copy failed! Please try again.', 
+        'info'
+      );
+    }
   };
 
   const handleCopyDateMealReportTabular = (onlyApprovedAndServed: boolean) => {
-    const list = getSelectedReportStaffList();
-    const filteredList = onlyApprovedAndServed 
-      ? list.filter(item => item.status === 'approved' || item.status === 'served')
-      : list;
+    const list = getSelectedReportStaffList(onlyApprovedAndServed);
 
-    if (filteredList.length === 0) {
+    if (list.length === 0) {
       showToast(
         lang === 'bn' 
           ? 'কপি করার মতো কোনো বুকিং রেকর্ড পাওয়া যায়নি!' 
@@ -290,20 +323,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       formattedText = `S.No\tName\tStaff ID\tRoom Number\tStatus\n`;
     }
 
-    filteredList.forEach((item, idx) => {
+    list.forEach((item, idx) => {
       const statusText = lang === 'bn'
         ? (item.status === 'approved' ? 'অনুমোদিত' : item.status === 'served' ? 'পরিবেশিত' : item.status === 'pending' ? 'অপেক্ষমাণ' : 'বাতিল')
         : item.status.toUpperCase();
       formattedText += `${idx + 1}\t${item.name}\t${item.staffId}\t${item.roomNumber}\t${statusText}\n`;
     });
 
-    navigator.clipboard.writeText(formattedText);
-    showToast(
-      lang === 'bn' 
-        ? `এক্সেল পেস্ট উপযোগী ${filteredList.length} টি তথ্য কপি হয়েছে!` 
-        : `Copied ${filteredList.length} rows for Excel/Google Sheets!`, 
-      'success'
-    );
+    const success = copyTextToClipboard(formattedText);
+    if (success) {
+      showToast(
+        lang === 'bn' 
+          ? `এক্সেল পেস্ট উপযোগী ${list.length} টি তথ্য কপি হয়েছে!` 
+          : `Copied ${list.length} rows for Excel/Google Sheets!`, 
+        'success'
+      );
+    } else {
+      showToast(
+        lang === 'bn' 
+          ? 'কপি ব্যর্থ হয়েছে! অনুগ্রহ করে আবার চেষ্টা করুন।' 
+          : 'Copy failed! Please try again.', 
+        'info'
+      );
+    }
   };
 
   const handleBatchDeleteReport = () => {
@@ -483,9 +525,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     return lang === 'bn' ? 'অজানা স্টাফ' : 'Unknown Staff';
   }, [preloadedStaffMap, usersMap, lang]);
 
-  const getSelectedReportStaffList = () => {
+  const getSelectedReportStaffList = (onlyApprovedAndServed: boolean = false) => {
     const selectedDemands = demands.filter(
-      (d) => d.date === selectedReportDate && d.mealType === selectedReportMealType && (d.status === 'approved' || d.status === 'served')
+      (d) => d.date === selectedReportDate && d.mealType === selectedReportMealType && (!onlyApprovedAndServed || d.status === 'approved' || d.status === 'served')
     );
     
     const list: { id: string; staffId: string; name: string; roomNumber: string; status: 'pending' | 'approved' | 'served' | 'rejected' }[] = [];
@@ -2233,11 +2275,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
               {/* Dynamic Stats for Selected Batch */}
               {(() => {
-                const list = getSelectedReportStaffList();
-                const totalCount = list.length;
-                const approvedCount = list.filter(item => item.status === 'approved').length;
-                const servedCount = list.filter(item => item.status === 'served').length;
-                const pendingCount = list.filter(item => item.status === 'pending').length;
+                const allList = getSelectedReportStaffList(false);
+                const approvedAndServedList = getSelectedReportStaffList(true);
+                const totalCount = allList.length;
+                const approvedCount = allList.filter(item => item.status === 'approved').length;
+                const servedCount = allList.filter(item => item.status === 'served').length;
+                const pendingCount = allList.filter(item => item.status === 'pending').length;
 
                 return (
                   <div className="space-y-4">
@@ -2270,20 +2313,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           {/* Format Copy Button */}
                           <button
                             type="button"
+                            disabled={approvedAndServedList.length === 0}
                             onClick={() => handleCopyDateMealReportCombined(true)}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-4 py-3 rounded-xl transition flex items-center justify-center gap-1.5 shadow active:scale-95 cursor-pointer"
+                            className={`font-extrabold text-xs px-4 py-3 rounded-xl transition flex items-center justify-center gap-1.5 shadow active:scale-95 ${
+                              approvedAndServedList.length > 0
+                                ? 'bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer'
+                                : 'bg-slate-900 text-slate-600 border border-slate-800 cursor-not-allowed'
+                            }`}
                           >
-                            <Copy className="w-4 h-4 text-indigo-200" />
+                            <Copy className="w-4 h-4" />
                             {lang === 'bn' ? '১-ক্লিকে তালিকা কপি করুন' : '1-Click Copy List'}
                           </button>
 
                           {/* Sheets Copy Button */}
                           <button
                             type="button"
+                            disabled={approvedAndServedList.length === 0}
                             onClick={() => handleCopyDateMealReportTabular(true)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs px-4 py-3 rounded-xl transition flex items-center justify-center gap-1.5 shadow active:scale-95 cursor-pointer"
+                            className={`font-extrabold text-xs px-4 py-3 rounded-xl transition flex items-center justify-center gap-1.5 shadow active:scale-95 ${
+                              approvedAndServedList.length > 0
+                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'
+                                : 'bg-slate-900 text-slate-600 border border-slate-800 cursor-not-allowed'
+                            }`}
                           >
-                            <Clipboard className="w-4 h-4 text-emerald-200" />
+                            <Clipboard className="w-4 h-4" />
                             {lang === 'bn' ? 'এক্সেল / গুগল শিট কপি' : 'Copy for Sheets/Excel'}
                           </button>
 
@@ -2297,11 +2350,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             {lang === 'bn' ? 'সমস্ত ডাটা ডিলিট করুন' : 'Delete All Batch Data'}
                           </button>
                         </div>
-                        <p className="text-[10px] text-slate-400 italic text-center pt-1">
-                          {lang === 'bn' 
-                            ? '💡 কপি অপশনটি শুধুমাত্র "অনুমোদিত" ও "পরিবেশিত" সদস্যদের নাম ও আইডি সিলেক্ট করে ক্লিপবোর্ডে কপি করবে।' 
-                            : '💡 Copy action filters and copies only Approved & Served member details.'}
-                        </p>
+                        {pendingCount > 0 ? (
+                          <p className="text-[10px] text-amber-400 font-bold bg-amber-950/30 border border-amber-900/40 p-2 rounded-lg text-center">
+                            {lang === 'bn' 
+                              ? `⚠️ উক্ত মিলটির জন্য ${pendingCount}টি ডিমান্ড এখনও অপেক্ষমাণ (Pending) রয়েছে। কপি করার আগে অনুগ্রহ করে নিচের লাইভ ডিমান্ড স্প্রেডশিট থেকে অনুমোদন করুন।` 
+                              : `⚠️ There are ${pendingCount} demands still Pending. Please approve them from the Live Demand Spreadsheet below to include them in the copies.`}
+                          </p>
+                        ) : (
+                          <p className="text-[10px] text-slate-400 italic text-center pt-1">
+                            {lang === 'bn' 
+                              ? '💡 কপি অপশনটি শুধুমাত্র "অনুমোদিত" ও "পরিবেশিত" সদস্যদের নাম ও আইডি সিলেক্ট করে ক্লিপবোর্ডে কপি করবে।' 
+                              : '💡 Copy action filters and copies only Approved & Served member details.'}
+                          </p>
+                        )}
                       </div>
                     ) : null}
 
@@ -2309,7 +2370,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <div className="bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden">
                       <div className="p-3 border-b border-slate-800 bg-slate-950/50 flex justify-between items-center">
                         <span className="text-xs font-black text-slate-300">
-                          {lang === 'bn' ? `সদস্যদের তালিকা (${totalCount} জন)` : `Staff Members List (${totalCount})`}
+                          {lang === 'bn' 
+                            ? `অনুমোদিত সদস্যদের তালিকা (${approvedAndServedList.length} জন)` 
+                            : `Approved Members List (${approvedAndServedList.length})`}
                         </span>
                         {totalCount > 0 && (
                           <span className="text-[10px] text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-lg font-mono">
@@ -2318,17 +2381,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         )}
                       </div>
 
-                      {list.length === 0 ? (
-                        <div className="p-8 text-center text-slate-500 space-y-1">
-                          <p className="text-xs font-bold">{lang === 'bn' ? 'কোনো বুকিং রেকর্ড পাওয়া যায়নি' : 'No records found'}</p>
-                          <p className="text-[10px] text-slate-600">
+                      {approvedAndServedList.length === 0 ? (
+                        <div className="p-8 text-center text-slate-500 space-y-1.5">
+                          <p className="text-xs font-bold">
+                            {lang === 'bn' ? 'কোনো অনুমোদিত বুকিং রেকর্ড পাওয়া যায়নি' : 'No approved records found'}
+                          </p>
+                          <p className="text-[10px] text-slate-600 max-w-md mx-auto">
                             {lang === 'bn' 
-                              ? 'উক্ত তারিখে এই মিলটির জন্য কোনো বাসিন্দা ডিমান্ড সাবমিট করেনি।' 
-                              : 'No resident submitted meal demands for this date and time.'}
+                              ? 'উক্ত তারিখে এই মিলটির জন্য কোনো অনুমোদিত বা পরিবেশিত বাসিন্দা পাওয়া যায়নি। অনুগ্রহ করে নিচের স্প্রেডশিট থেকে অনুমোদন করুন।' 
+                              : 'No approved or served residents found for this meal and date. Please approve pending demands from the spreadsheet below.'}
                           </p>
                         </div>
                       ) : (
-                        <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
+                        <div className="overflow-x-auto max-h-[300px] overflow-y-auto font-sans">
                           <table className="w-full text-xs text-left text-slate-300">
                             <thead className="bg-slate-900/50 text-slate-400 font-bold border-b border-slate-800">
                               <tr>
@@ -2340,7 +2405,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-800/40">
-                              {list.map((item, idx) => (
+                              {approvedAndServedList.map((item, idx) => (
                                 <tr key={item.id} className="hover:bg-slate-900/30 transition">
                                   <td className="p-2.5 text-center font-mono font-bold text-slate-500">{idx + 1}</td>
                                   <td className="p-2.5 font-bold text-white">{item.name}</td>
@@ -2350,14 +2415,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     <span className={`text-[9px] font-black px-2 py-0.5 rounded-lg inline-block uppercase ${
                                       item.status === 'served'
                                         ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
-                                        : item.status === 'approved'
-                                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                        : item.status === 'pending'
-                                        ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                        : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                                        : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                                     }`}>
                                       {lang === 'bn' 
-                                        ? (item.status === 'served' ? 'পরিবেশিত' : item.status === 'approved' ? 'অনুমোদিত' : item.status === 'pending' ? 'অপেক্ষমাণ' : 'বাতিল')
+                                        ? (item.status === 'served' ? 'পরিবেশিত' : 'অনুমোদিত')
                                         : item.status}
                                     </span>
                                   </td>

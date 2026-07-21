@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { User, MealDemand, Notice, ChatMessage, TimeSetting, PreLoadedStaff, ActivityLog, MealType, RegistrationInput, FoodMenuItem, RoomConfig } from './types';
+import { User, MealDemand, Notice, ChatMessage, TimeSetting, PreLoadedStaff, ActivityLog, MealType, RegistrationInput, FoodMenuItem, RoomConfig, AutoDemandConfig } from './types';
 import { 
   INITIAL_PRELOADED_STAFF, INITIAL_USERS, INITIAL_DEMANDS, 
   INITIAL_NOTICES, INITIAL_CHATS, INITIAL_TIME_SETTINGS, INITIAL_LOGS,
@@ -65,6 +65,49 @@ export default function App() {
   const [adminPassInput, setAdminPassInput] = useState('');
   const [adminLoginError, setAdminLoginError] = useState('');
 
+  // Self-heal and split any group demands into separate independent demands dynamically
+  const cleanAndSplitDemands = (rawDemands: MealDemand[]): MealDemand[] => {
+    if (!rawDemands || !Array.isArray(rawDemands)) return [];
+    let needsUpdate = false;
+    const cleaned: MealDemand[] = [];
+    const splitDemandsToSave: MealDemand[] = [];
+    const demandsToDelete: string[] = [];
+
+    rawDemands.forEach((dem) => {
+      if (dem && dem.selectedStaffIds && Array.isArray(dem.selectedStaffIds) && dem.selectedStaffIds.length > 1) {
+        needsUpdate = true;
+        demandsToDelete.push(dem.id);
+        dem.selectedStaffIds.forEach((staffId, index) => {
+          const newDem: MealDemand = {
+            ...dem,
+            id: `dem-split-${dem.id}-${index}-${staffId}`,
+            selectedStaffIds: [staffId],
+            timestamp: dem.timestamp || new Date().toISOString()
+          };
+          splitDemandsToSave.push(newDem);
+          cleaned.push(newDem);
+        });
+      } else if (dem) {
+        cleaned.push(dem);
+      }
+    });
+
+    if (needsUpdate) {
+      setTimeout(() => {
+        // Delete original multi-member demands
+        demandsToDelete.forEach((id) => {
+          deleteDocFromFirestore('demands_db', id);
+        });
+        // Save new individual split demands
+        splitDemandsToSave.forEach((d) => {
+          saveDocToFirestore('demands_db', d);
+        });
+      }, 50);
+    }
+
+    return cleaned;
+  };
+
   // 1. INITIALIZE DATABASE FROM STORAGE AND FIREBASE SYNC
   useEffect(() => {
     function getOrSet<T>(key: string, initial: T): T {
@@ -86,7 +129,8 @@ export default function App() {
     // Load from local storage immediately for fast UI response
     const localPreload = getOrSet('preload_db', INITIAL_PRELOADED_STAFF);
     const localUsers = getOrSet('users_db', INITIAL_USERS);
-    const localDemands = getOrSet('demands_db', INITIAL_DEMANDS);
+    const rawLocalDemands = getOrSet('demands_db', INITIAL_DEMANDS);
+    const localDemands = cleanAndSplitDemands(rawLocalDemands);
     const localNotices = getOrSet('notices_db', INITIAL_NOTICES);
     const localChats = getOrSet('chats_db', INITIAL_CHATS);
     const localTimes = getOrSet('times_db', INITIAL_TIME_SETTINGS);
@@ -155,8 +199,9 @@ export default function App() {
       });
       const unsubDemands = listenToCollection('demands_db', (data) => {
         if (isSubscribed) {
-          setDemands(data);
-          localStorage.setItem('demands_db', JSON.stringify(data));
+          const splitData = cleanAndSplitDemands(data);
+          setDemands(splitData);
+          localStorage.setItem('demands_db', JSON.stringify(splitData));
         }
       });
       const unsubNotices = listenToCollection('notices_db', (data) => {
@@ -225,6 +270,131 @@ export default function App() {
     };
   }, []);
 
+  // Keep loggedInUser session in sync with real-time updates from users database
+  useEffect(() => {
+    if (loggedInUser) {
+      const updatedUser = users.find(u => u.id === loggedInUser.id || u.staffId.toLowerCase() === loggedInUser.staffId.toLowerCase());
+      if (updatedUser) {
+        if (
+          updatedUser.status !== loggedInUser.status || 
+          updatedUser.name !== loggedInUser.name ||
+          updatedUser.roomNumber !== loggedInUser.roomNumber ||
+          updatedUser.department !== loggedInUser.department ||
+          JSON.stringify(updatedUser.autoDemand) !== JSON.stringify(loggedInUser.autoDemand)
+        ) {
+          setLoggedInUser(updatedUser);
+          localStorage.setItem('logged_in_user', JSON.stringify(updatedUser));
+        }
+      }
+    }
+  }, [users, loggedInUser]);
+
+  // Run Auto Demand checks in the background (runs when any active user is using the app)
+  useEffect(() => {
+    if (users.length === 0) return;
+
+    // Local helper to check if current time is active for a meal
+    const isMealTimeActive = (mealType: MealType) => {
+      if (bypassTimeControls) return true;
+      const setting = timeSettings.find((s) => s.mealType === mealType);
+      if (!setting) return false;
+
+      const now = new Date();
+      const currentStr = `${String(now.getHours()).padStart(2, '0')}:${String(
+        now.getMinutes()
+      ).padStart(2, '0')}`;
+      return currentStr >= setting.startTime && currentStr <= setting.endTime;
+    };
+
+    // Get today's local date string YYYY-MM-DD
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    const todayStr = `${yyyy}-${mm}-${dd}`;
+
+    // Get current day of the week
+    const dayIndex = today.getDay();
+    const weekdayKeys = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
+    const currentDayKey = weekdayKeys[dayIndex];
+
+    // Filter approved users with active Auto Demand
+    const autoUsers = users.filter((u) => u.status === 'approved' && u.autoDemand && u.autoDemand.enabled);
+    if (autoUsers.length === 0) return;
+
+    const newDemandsToCreate: MealDemand[] = [];
+
+    autoUsers.forEach((u) => {
+      const config = u.autoDemand!;
+      const meals: MealType[] = [];
+
+      if (config.schedule && config.schedule[currentDayKey]) {
+        const daySchedule = config.schedule[currentDayKey];
+        if (daySchedule.breakfast) meals.push('breakfast');
+        if (daySchedule.lunch) meals.push('lunch');
+        if (daySchedule.dinner) meals.push('dinner');
+      } else {
+        // Fallback for legacy configuration
+        const legacy = config as any;
+        if (legacy.breakfast) meals.push('breakfast');
+        if (legacy.lunch) meals.push('lunch');
+        if (legacy.dinner) meals.push('dinner');
+      }
+
+      meals.forEach((meal) => {
+        // Only trigger if the meal timeframe is currently open/active
+        if (!isMealTimeActive(meal)) return;
+
+        // Check if there is already an existing non-rejected demand for this user, this meal, and today
+        const hasExistingDemand = demands.some((d) => 
+          d.date === todayStr && 
+          d.mealType === meal && 
+          d.status !== 'rejected' &&
+          d.selectedStaffIds.map(sid => sid.toLowerCase()).includes(u.staffId.toLowerCase())
+        );
+
+        if (!hasExistingDemand) {
+          const newDemandId = `dem-auto-${u.staffId}-${meal}-${todayStr}`;
+          const newDem: MealDemand = {
+            id: newDemandId,
+            roomNumber: u.roomNumber,
+            mealType: meal,
+            date: todayStr,
+            selectedStaffIds: [u.staffId],
+            submittedBy: u.staffId,
+            submittedByName: `${u.name} (Auto)`,
+            status: 'pending',
+            timestamp: new Date().toISOString()
+          };
+          newDemandsToCreate.push(newDem);
+        }
+      });
+    });
+
+    if (newDemandsToCreate.length > 0) {
+      setDemands((prev) => {
+        const updated = [...newDemandsToCreate, ...prev];
+        setTimeout(() => {
+          localStorage.setItem('demands_db', JSON.stringify(updated));
+          newDemandsToCreate.forEach((d) => {
+            saveDocToFirestore('demands_db', d);
+          });
+        }, 0);
+        return updated;
+      });
+
+      // Log activity
+      newDemandsToCreate.forEach((d) => {
+        const userObj = users.find((u) => u.staffId.toLowerCase() === d.submittedBy.toLowerCase());
+        pushActivityLog(
+          'Auto Demand Submitted',
+          `System automatically submitted ${d.mealType.toUpperCase()} demand for Room ${d.roomNumber} (${userObj?.name || d.submittedBy})`,
+          'System Auto'
+        );
+      });
+    }
+  }, [users, demands, timeSettings, bypassTimeControls]);
+
   // Helpers to push updates to storage (local storage and Firestore concurrently)
   const saveToStorage = (key: string, data: any) => {
     localStorage.setItem(key, JSON.stringify(data));
@@ -287,8 +457,9 @@ export default function App() {
       setUsers(fetchedUsers);
       localStorage.setItem('users_db', JSON.stringify(fetchedUsers));
 
-      setDemands(fetchedDemands);
-      localStorage.setItem('demands_db', JSON.stringify(fetchedDemands));
+      const splitDemands = cleanAndSplitDemands(fetchedDemands);
+      setDemands(splitDemands);
+      localStorage.setItem('demands_db', JSON.stringify(splitDemands));
 
       setNotices(fetchedNotices);
       localStorage.setItem('notices_db', JSON.stringify(fetchedNotices));
@@ -695,6 +866,37 @@ export default function App() {
       'User Room Changed',
       `Admin changed room for ${userObj?.name || userId} from Room ${userObj?.roomNumber || ''} to Room ${newRoomNumber}`,
       'Admin'
+    );
+  };
+
+  const handleUpdateUserAutoDemand = (userId: string, autoDemand: AutoDemandConfig) => {
+    let updatedUserObj: User | null = null;
+    setUsers((prev) => {
+      const updated = prev.map((u) => {
+        if (u.id === userId) {
+          updatedUserObj = { ...u, autoDemand };
+          return updatedUserObj;
+        }
+        return u;
+      });
+      setTimeout(() => {
+        localStorage.setItem('users_db', JSON.stringify(updated));
+        if (updatedUserObj) {
+          saveDocToFirestore('users_db', updatedUserObj);
+        }
+      }, 0);
+      return updated;
+    });
+
+    if (loggedInUser && loggedInUser.id === userId) {
+      setLoggedInUser((prev) => (prev ? { ...prev, autoDemand } : null));
+    }
+    
+    const userObj = users.find((u) => u.id === userId);
+    pushActivityLog(
+      'Auto Demand Config Updated',
+      `User ${userObj?.name || userId} updated Auto Demand Configuration: ${autoDemand.enabled ? 'Enabled' : 'Disabled'}${autoDemand.schedule ? ' (7-Day Schedule Planner)' : ''}`,
+      userObj?.name || 'User'
     );
   };
 
@@ -1116,6 +1318,7 @@ export default function App() {
             onSubmitDemand={handleSubmitDemand}
             onSendChatMessage={handleSendChatMessage}
             onSwitchToAdmin={() => setViewMode('admin')}
+            onUpdateAutoDemand={handleUpdateUserAutoDemand}
           />
         )}
 
