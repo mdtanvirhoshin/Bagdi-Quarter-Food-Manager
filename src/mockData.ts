@@ -195,9 +195,9 @@ export const INITIAL_CHATS: ChatMessage[] = [
 ];
 
 export const INITIAL_TIME_SETTINGS: TimeSetting[] = [
-  { mealType: 'breakfast', startTime: '06:00', endTime: '08:00' },
-  { mealType: 'lunch', startTime: '10:00', endTime: '12:00' },
-  { mealType: 'dinner', startTime: '16:00', endTime: '18:00' }
+  { id: 'breakfast', mealType: 'breakfast', startTime: '06:00', endTime: '08:00' },
+  { id: 'lunch', mealType: 'lunch', startTime: '10:00', endTime: '12:00' },
+  { id: 'dinner', mealType: 'dinner', startTime: '16:00', endTime: '18:00' }
 ];
 
 export const INITIAL_LOGS: ActivityLog[] = [

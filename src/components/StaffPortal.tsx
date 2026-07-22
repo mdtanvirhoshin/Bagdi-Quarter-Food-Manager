@@ -12,7 +12,7 @@ import {
   Lock, CheckCircle, AlertCircle, Calendar, 
   Clock, Megaphone, CheckSquare, Square, 
   Send, UserCheck, Key, LogIn, Upload, Users, ShieldAlert,
-  Camera, Sparkles, Utensils, Flame, Coffee, HelpCircle, ChevronDown, ChevronUp, X, Search
+  Camera, Sparkles, Utensils, Flame, Coffee, HelpCircle, ChevronDown, ChevronUp, X, Search, Trash2, Save
 } from 'lucide-react';
 
 interface StaffPortalProps {
@@ -34,6 +34,7 @@ interface StaffPortalProps {
   onSendChatMessage: (text: string, receiverId: string) => void;
   onSwitchToAdmin: () => void;
   onUpdateAutoDemand: (userId: string, autoDemand: AutoDemandConfig) => void;
+  onCancelDemand?: (mealType: MealType, roomNumber: string) => void;
 }
 
 export const StaffPortal: React.FC<StaffPortalProps> = ({
@@ -55,6 +56,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
   onSendChatMessage,
   onSwitchToAdmin,
   onUpdateAutoDemand,
+  onCancelDemand,
 }) => {
   const t = translations[lang];
 
@@ -112,6 +114,9 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
 
   // For selecting which roommate's auto demand is currently being edited
   const [selectedAutoUser, setSelectedAutoUser] = useState<string>('');
+
+  // Local draft configuration state for Auto Demand scheduler (Save-to-Activate flow)
+  const [draftConfigs, setDraftConfigs] = useState<Record<string, AutoDemandConfig>>({});
 
   const getWeeklySchedule = (targetUser: User) => {
     if (targetUser?.autoDemand?.schedule) {
@@ -252,17 +257,166 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
     onLogin(matchedUser);
   };
 
-  // Check if current time is active for a meal
+  // Live Bangladesh Clock State (updates every 1 second)
+  const [bdCurrentTime, setBdCurrentTime] = useState<Date>(() => new Date());
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      setBdCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Helper to format live Bangladesh time
+  const getFormattedBdTime = () => {
+    const timeStr = bdCurrentTime.toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', {
+      timeZone: 'Asia/Dhaka',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    });
+    const dateStr = bdCurrentTime.toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', {
+      timeZone: 'Asia/Dhaka',
+      weekday: 'short',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+    return { dateStr, timeStr };
+  };
+
+  // Helper to get Bangladesh current HH:MM
+  const getBdHHMM = () => {
+    const options = { timeZone: 'Asia/Dhaka', hour12: false, hour: '2-digit', minute: '2-digit' } as const;
+    const parts = new Intl.DateTimeFormat('en-US', options).formatToParts(bdCurrentTime);
+    let h = '00', m = '00';
+    parts.forEach(p => {
+      if (p.type === 'hour') h = p.value;
+      if (p.type === 'minute') m = p.value;
+    });
+    if (h === '24') h = '00';
+    return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
+  };
+
+  // Check if current time is active for a meal in Bangladesh Time
   const isTimeActive = (mealType: MealType) => {
     if (bypassTimeControls) return true;
     const setting = timeSettings.find((s) => s.mealType === mealType);
-    if (!setting) return false;
+    if (!setting || !setting.startTime || !setting.endTime) return false;
 
-    const now = new Date();
-    const currentStr = `${String(now.getHours()).padStart(2, '0')}:${String(
-      now.getMinutes()
-    ).padStart(2, '0')}`;
-    return currentStr >= setting.startTime && currentStr <= setting.endTime;
+    const currentStr = getBdHHMM();
+    const { startTime, endTime } = setting;
+
+    if (startTime <= endTime) {
+      return currentStr >= startTime && currentStr <= endTime;
+    } else {
+      return currentStr >= startTime || currentStr <= endTime;
+    }
+  };
+
+  // Detailed countdown calculation for active or upcoming meal windows
+  const getMealCountdownInfo = (mealType: MealType) => {
+    const setting = timeSettings.find((s) => s.mealType === mealType);
+    if (!setting || !setting.startTime || !setting.endTime) {
+      return { isActive: false, textBn: 'সময়সূচী সেট করা নেই', textEn: 'Time setting not configured', status: 'closed' };
+    }
+
+    if (bypassTimeControls) {
+      return {
+        isActive: true,
+        textBn: 'ডিমান্ড টাইমার বাইপাস সচল (যেকোনো সময় দেওয়া যাবে)',
+        textEn: 'Bypass active (demands allowed anytime)',
+        status: 'open_bypassed'
+      };
+    }
+
+    const currentStr = getBdHHMM();
+    const [currH, currM] = currentStr.split(':').map(Number);
+    const currSecs = bdCurrentTime.getSeconds();
+    const totalCurrSecs = currH * 3600 + currM * 60 + currSecs;
+
+    const [startH, startM] = setting.startTime.split(':').map(Number);
+    const totalStartSecs = startH * 3600 + startM * 60;
+
+    const [endH, endM] = setting.endTime.split(':').map(Number);
+    const totalEndSecs = endH * 3600 + endM * 60;
+
+    let active = false;
+    let remainingSecs = 0;
+    let secsUntilStart = 0;
+
+    if (totalStartSecs <= totalEndSecs) {
+      if (totalCurrSecs >= totalStartSecs && totalCurrSecs <= totalEndSecs) {
+        active = true;
+        remainingSecs = totalEndSecs - totalCurrSecs;
+      } else if (totalCurrSecs < totalStartSecs) {
+        active = false;
+        secsUntilStart = totalStartSecs - totalCurrSecs;
+      } else {
+        active = false;
+        secsUntilStart = (86400 - totalCurrSecs) + totalStartSecs;
+      }
+    } else {
+      if (totalCurrSecs >= totalStartSecs || totalCurrSecs <= totalEndSecs) {
+        active = true;
+        if (totalCurrSecs >= totalStartSecs) {
+          remainingSecs = (86400 - totalCurrSecs) + totalEndSecs;
+        } else {
+          remainingSecs = totalEndSecs - totalCurrSecs;
+        }
+      } else {
+        active = false;
+        secsUntilStart = totalStartSecs - totalCurrSecs;
+      }
+    }
+
+    const formatSecondsToBn = (secs: number) => {
+      const h = Math.floor(secs / 3600);
+      const m = Math.floor((secs % 3600) / 60);
+      const s = secs % 60;
+      let p = [];
+      if (h > 0) p.push(`${h} ঘণ্টা`);
+      if (m > 0 || h > 0) p.push(`${m} মিনিট`);
+      p.push(`${s} সেকেন্ড`);
+      return p.join(' ');
+    };
+
+    const formatSecondsToEn = (secs: number) => {
+      const h = Math.floor(secs / 3600);
+      const m = Math.floor((secs % 3600) / 60);
+      const s = secs % 60;
+      let p = [];
+      if (h > 0) p.push(`${h} hr`);
+      if (m > 0 || h > 0) p.push(`${m} min`);
+      p.push(`${s} sec`);
+      return p.join(' ');
+    };
+
+    if (active) {
+      return {
+        isActive: true,
+        textBn: `ডিমান্ড জমা দিতে সময় বাকি: ${formatSecondsToBn(remainingSecs)}`,
+        textEn: `Time remaining: ${formatSecondsToEn(remainingSecs)}`,
+        status: 'open',
+        remainingSecs
+      };
+    } else if (secsUntilStart > 0 && secsUntilStart <= 86400) {
+      return {
+        isActive: false,
+        textBn: `ডিমান্ড শুরু হতে বাকি: ${formatSecondsToBn(secsUntilStart)}`,
+        textEn: `Opens in: ${formatSecondsToEn(secsUntilStart)}`,
+        status: 'upcoming',
+        secsUntilStart
+      };
+    } else {
+      return {
+        isActive: false,
+        textBn: `ডিমান্ড নেওয়ার নির্ধারিত সময় শেষ`,
+        textEn: `Demand window closed`,
+        status: 'closed'
+      };
+    }
   };
 
   // Check if room is locked for a meal (demands already placed)
@@ -1060,7 +1214,13 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
             // Determine active target user for configuration
             const targetUserId = selectedAutoUser || currentUser.id;
             const targetUser = approvedRoommates.find(u => u.id === targetUserId) || currentUser;
-            const schedule = getWeeklySchedule(targetUser);
+            
+            const defaultSchedule = getWeeklySchedule(targetUser);
+            const currentDraft = draftConfigs[targetUser.id] || {
+              enabled: targetUser.autoDemand?.enabled ?? false,
+              schedule: defaultSchedule
+            };
+            const schedule = currentDraft.schedule || defaultSchedule;
             
             const daysOfWeekList = [
               { key: 'saturday', labelEn: 'Saturday', labelBn: 'শনিবার' },
@@ -1073,33 +1233,21 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
             ] as const;
 
             const toggleMeal = (dayKey: typeof daysOfWeekList[number]['key'], meal: 'breakfast' | 'lunch' | 'dinner') => {
+              const currentSched = currentDraft.schedule || defaultSchedule;
               const updatedSchedule = {
-                ...schedule,
+                ...currentSched,
                 [dayKey]: {
-                  ...schedule[dayKey],
-                  [meal]: !schedule[dayKey][meal]
+                  ...currentSched[dayKey],
+                  [meal]: !currentSched[dayKey]?.[meal]
                 }
               };
-              const updatedConfig: AutoDemandConfig = {
-                enabled: targetUser.autoDemand?.enabled ?? true,
-                schedule: updatedSchedule,
-              };
-              onUpdateAutoDemand(targetUser.id, updatedConfig);
-              
-              const mealLabel = meal === 'breakfast' 
-                ? (lang === 'bn' ? 'সকাল' : 'Breakfast')
-                : meal === 'lunch'
-                ? (lang === 'bn' ? 'দুপুর' : 'Lunch')
-                : (lang === 'bn' ? 'রাত' : 'Dinner');
-              
-              const dayLabel = daysOfWeekList.find(d => d.key === dayKey)?.[lang === 'bn' ? 'labelBn' : 'labelEn'];
-              
-              showToast(
-                lang === 'bn'
-                  ? `${targetUser.name} - এর জন্য ${dayLabel} - এ ${mealLabel} এর অটো ডিমান্ড ${!schedule[dayKey][meal] ? 'সচল' : 'বন্ধ'} করা হয়েছে।`
-                  : `${targetUser.name}'s ${dayLabel} - ${mealLabel} auto-demand ${!schedule[dayKey][meal] ? 'activated' : 'deactivated'}.`,
-                'info'
-              );
+              setDraftConfigs(prev => ({
+                ...prev,
+                [targetUser.id]: {
+                  enabled: currentDraft.enabled,
+                  schedule: updatedSchedule
+                }
+              }));
             };
 
             const handleSetAll = (status: boolean) => {
@@ -1111,31 +1259,32 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                   dinner: status
                 };
               });
-              const updatedConfig: AutoDemandConfig = {
-                enabled: targetUser.autoDemand?.enabled ?? true,
-                schedule: updatedSchedule,
-              };
-              onUpdateAutoDemand(targetUser.id, updatedConfig);
-              showToast(
-                lang === 'bn'
-                  ? `${targetUser.name} - এর জন্য পুরো সপ্তাহের সব বেলার মিল ${status ? 'চালু' : 'বন্ধ'} করা হয়েছে।`
-                  : `Successfully toggled all weekly meals ${status ? 'ON' : 'OFF'} for ${targetUser.name}.`,
-                'success'
-              );
+              setDraftConfigs(prev => ({
+                ...prev,
+                [targetUser.id]: {
+                  enabled: currentDraft.enabled,
+                  schedule: updatedSchedule
+                }
+              }));
             };
 
             const toggleAutoDemandEnabled = () => {
-              const currentEnabled = targetUser.autoDemand?.enabled ?? false;
-              const updatedConfig: AutoDemandConfig = {
-                enabled: !currentEnabled,
-                schedule: schedule
-              };
-              onUpdateAutoDemand(targetUser.id, updatedConfig);
+              setDraftConfigs(prev => ({
+                ...prev,
+                [targetUser.id]: {
+                  enabled: !currentDraft.enabled,
+                  schedule: currentDraft.schedule || defaultSchedule
+                }
+              }));
+            };
+
+            const handleSaveAutoDemand = () => {
+              onUpdateAutoDemand(targetUser.id, currentDraft);
               showToast(
                 lang === 'bn'
-                  ? `${targetUser.name} - এর অটো ডিমান্ড সার্ভিস ${!currentEnabled ? 'চালু' : 'বন্ধ'} করা হয়েছে।`
-                  : `Auto Demand Service for ${targetUser.name} has been ${!currentEnabled ? 'enabled' : 'disabled'}.`,
-                !currentEnabled ? 'success' : 'info'
+                  ? `${targetUser.name} - এর অটো ডিমান্ড শিডিউল সফলভাবে সেভ ও সচল করা হয়েছে!`
+                  : `Auto demand schedule successfully saved & activated for ${targetUser.name}!`,
+                'success'
               );
             };
 
@@ -1337,24 +1486,24 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                       <button
                         onClick={toggleAutoDemandEnabled}
                         className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                          targetUser.autoDemand?.enabled ? 'bg-indigo-600' : 'bg-slate-200'
+                          currentDraft.enabled ? 'bg-indigo-600' : 'bg-slate-200'
                         }`}
                       >
                         <span
                           className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                            targetUser.autoDemand?.enabled ? 'translate-x-5' : 'translate-x-0'
+                            currentDraft.enabled ? 'translate-x-5' : 'translate-x-0'
                           }`}
                         />
                       </button>
-                      <span className={`text-[11px] font-black ${targetUser.autoDemand?.enabled ? 'text-indigo-600' : 'text-slate-400'}`}>
-                        {targetUser.autoDemand?.enabled 
+                      <span className={`text-[11px] font-black ${currentDraft.enabled ? 'text-indigo-600' : 'text-slate-400'}`}>
+                        {currentDraft.enabled 
                           ? (lang === 'bn' ? 'চালু' : 'Enabled') 
                           : (lang === 'bn' ? 'বন্ধ' : 'Disabled')}
                       </span>
                     </div>
                   </div>
 
-                  {targetUser.autoDemand?.enabled ? (
+                  {currentDraft.enabled ? (
                     <div className="space-y-5 animate-in fade-in duration-300">
                       {/* Bulk actions */}
                       <div className="flex items-center gap-2.5">
@@ -1456,6 +1605,28 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                         })}
                       </div>
 
+                      {/* SAVE BUTTON SECTION */}
+                      <div className="pt-4 border-t border-indigo-100 flex flex-col sm:flex-row items-center justify-between gap-3 bg-indigo-50/40 p-4 rounded-2xl border border-indigo-100/80 shadow-sm">
+                        <div className="text-[11px] text-slate-600 font-medium text-left space-y-0.5">
+                          <div className="font-extrabold text-indigo-900 flex items-center gap-1.5">
+                            <Sparkles className="w-4 h-4 text-indigo-600" />
+                            {lang === 'bn' ? 'অটো ডিমান্ড সেভ ও সচলকরণ:' : 'Save & Activate Auto Demand:'}
+                          </div>
+                          <div>
+                            {lang === 'bn'
+                              ? 'বার এবং বেলার সময় (সকাল/দুপুর/রাত) নির্বাচন বা বাদ দেওয়ার পর সেভ বাটনে ক্লিক করুন।'
+                              : 'Toggle days and meals as desired, then click Save to activate.'}
+                          </div>
+                        </div>
+                        <button
+                          onClick={handleSaveAutoDemand}
+                          className="w-full sm:w-auto bg-gradient-to-r from-indigo-600 to-indigo-800 hover:from-indigo-700 hover:to-indigo-900 text-white font-extrabold text-xs px-6 py-3.5 rounded-2xl transition shadow-lg hover:shadow-indigo-500/20 flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                        >
+                          <Save className="w-4 h-4 text-indigo-200" />
+                          <span>{lang === 'bn' ? 'অটো ডিমান্ড সেভ করুন' : 'Save Auto Demand'}</span>
+                        </button>
+                      </div>
+
                       <div className="bg-indigo-50/50 rounded-2xl p-4 text-[11px] text-indigo-950 border border-indigo-100 flex gap-2.5 items-start leading-relaxed shadow-sm">
                         <span className="text-sm">💡</span>
                         <div className="space-y-1 text-left">
@@ -1464,23 +1635,29 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                           </strong>
                           <p>
                             {lang === 'bn'
-                              ? 'এই সিস্টেমে রুমের মেম্বারদের চাহিদা সম্পূর্ণ আলাদা থাকবে। রুমে ১ থেকে ৪ জন মেম্বার থাকলে প্রত্যেকেই নিজের বা রুমমেটের জন্য ৭ দিনের বারের খাবার (শনিবার থেকে শুক্রবার) কাস্টম উপায়ে নির্দিষ্ট করতে পারবেন। সিস্টেমটি সময়সীমার (Deadline) পূর্বে স্বয়ংক্রিয়ভাবে চাহিদাপত্র ডাটাবেজে যুক্ত করবে।'
-                              : 'Each room member operates on an independent custom schedule. Roommates can manage individual 7-day timetables (Saturday to Friday) safely without overlapping or interfering.'}
+                              ? 'আপনার সেভ করা শিডিউল অনুযায়ী এডমিনের নির্ধারিত খাবার বেলার ওপেন টাইমে স্বয়ংক্রিয়ভাবে ডিমান্ড জমা হবে। কোনো নির্দিষ্ট দিনে না খেলে এখানে সহজেই টিক মার্ক তুলে দিয়ে সেভ করে দিতে পারবেন।'
+                              : 'Auto demand will submit automatically during open meal hours according to your saved weekly schedule.'}
                           </p>
                         </div>
                       </div>
                     </div>
                   ) : (
-                    <div className="bg-indigo-50/30 rounded-2xl p-6 border border-dashed border-indigo-200 text-center space-y-2">
+                    <div className="bg-indigo-50/30 rounded-2xl p-6 border border-dashed border-indigo-200 text-center space-y-3">
                       <div className="text-xl">🤖</div>
                       <div className="font-extrabold text-xs text-indigo-950">
                         {lang === 'bn' ? `${targetUser.name} - এর জন্য অটো ডিমান্ড সার্ভিস বর্তমানে বন্ধ` : `Auto Demand Service for ${targetUser.name} is currently inactive`}
                       </div>
                       <p className="text-[10px] text-slate-500 max-w-md mx-auto leading-relaxed">
                         {lang === 'bn' 
-                          ? 'এটি সচল করলে সিস্টেম নির্ধারিত খাবার বেলার সময়ের ডেডলাইন শেষ হওয়ার পূর্বেই স্বয়ংক্রিয়ভাবে তার ডিমান্ড ডাটাবেজে সাবমিট করে দেবে।'
-                          : 'Enabling it allows the server engine to automatically submit their custom demands right before each meal’s deadline.'}
+                          ? 'অটো ডিমান্ড সেবা চালু করার পর দিন ও বেলার সময় বেছে সেভ বাটনে চাপলে তা সক্রিয় হবে।'
+                          : 'Turn on the toggle above, choose days and meal times, then click Save to activate.'}
                       </p>
+                      <button
+                        onClick={toggleAutoDemandEnabled}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-5 py-2.5 rounded-xl shadow-md transition cursor-pointer"
+                      >
+                        {lang === 'bn' ? 'অটো ডিমান্ড সেবা চালু করুন' : 'Enable Auto Demand Service'}
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1530,141 +1707,140 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
               </div>
             </div>
 
-            {/* Meal Time Constraint Info Box */}
-            <div className="bg-gradient-to-r from-orange-50/40 to-amber-50/40 rounded-2xl p-4 flex gap-3 border border-orange-100/50">
-              <Clock className="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5 animate-pulse" id="clock-meta-icon" />
-              <div className="text-xs space-y-1 text-slate-600 leading-relaxed">
-                <div>
-                  <strong className="text-orange-900">{t[activeMealTab]} সময়সীমা:</strong>{' '}
-                  <span className="font-mono bg-white border border-orange-100 px-2 py-0.5 rounded text-xs text-orange-600 font-bold">
-                    {timeSettings.find((s) => s.mealType === activeMealTab)?.startTime} -{' '}
-                    {timeSettings.find((s) => s.mealType === activeMealTab)?.endTime}
-                  </span>
-                </div>
-                <div className="text-[10px] text-slate-400 font-medium leading-normal">{t.roomLockNotice}</div>
-              </div>
-            </div>
-
-            {/* MANUAL DEMAND SECTION FOR OTHER MEMBERS */}
-            {!isRoomLocked(activeMealTab) && isTimeActive(activeMealTab) && (
-              <div className="border border-indigo-100 bg-indigo-50/15 rounded-2xl p-4 space-y-3.5 shadow-sm" id="manual-demand-block">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <Utensils className="w-4.5 h-4.5 text-indigo-600 animate-bounce" />
-                    <span className="text-xs font-black text-indigo-950">
-                      {lang === 'bn' ? 'মেনুয়ালি ডিমান্ড করার অপশন' : 'Manual Demand Option'}
-                    </span>
+            {/* LIVE BANGLADESH TIME & MEAL COUNTDOWN BANNER */}
+            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-2xl p-4 sm:p-5 shadow-lg border border-indigo-500/20 space-y-4" id="live-bd-time-banner">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400/30 flex items-center justify-center text-amber-400 shadow-inner">
+                    <Clock className="w-5 h-5 animate-pulse" />
                   </div>
-                  <span className="text-[9px] font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                    {lang === 'bn' ? `${t[activeMealTab]} এর জন্য` : `For ${activeMealTab}`}
-                  </span>
+                  <div>
+                    <div className="text-[10px] uppercase font-black tracking-widest text-amber-300/90 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block"></span>
+                      🇧🇩 {lang === 'bn' ? 'লাইভ বাংলাদেশ সময় (Live BD Time)' : 'Live Bangladesh Standard Time'}
+                    </div>
+                    <div className="text-sm sm:text-base font-mono font-black text-white tracking-tight mt-0.5">
+                      {getFormattedBdTime().dateStr} | <span className="text-amber-400">{getFormattedBdTime().timeStr}</span>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Other room members with checkbox */}
-                {(() => {
-                  const otherMembers = getRoomMembers().filter(
-                    (m) => m.staffId.toLowerCase() !== currentUser?.staffId.toLowerCase()
-                  );
+                {bypassTimeControls && (
+                  <span className="bg-amber-400/10 text-amber-300 border border-amber-400/30 text-[10px] font-black px-3 py-1 rounded-full flex items-center gap-1 self-start sm:self-auto">
+                    <Sparkles className="w-3 h-3 text-amber-400" />
+                    {lang === 'bn' ? 'ডিমান্ড টাইমার বাইপাস সচল' : 'Timer Bypass Active'}
+                  </span>
+                )}
+              </div>
 
-                  if (otherMembers.length === 0) {
-                    return (
-                      <div className="text-[11px] text-indigo-500 italic py-2 text-center">
-                        {lang === 'bn' ? 'রুমে অন্যান্য কোনো সদস্য নেই।' : 'No other room members found.'}
-                      </div>
-                    );
-                  }
+              {/* Admin Configured Meal Time Windows */}
+              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                {(['breakfast', 'lunch', 'dinner'] as MealType[]).map((m) => {
+                  const s = timeSettings.find((t) => t.mealType === m);
+                  const isSelected = activeMealTab === m;
+                  const isMealActive = isTimeActive(m);
+
+                  const labels = {
+                    breakfast: lang === 'bn' ? '🍳 সকাল' : 'Breakfast',
+                    lunch: lang === 'bn' ? '🍛 দুপুর' : 'Lunch',
+                    dinner: lang === 'bn' ? '🍲 রাত' : 'Dinner',
+                  };
 
                   return (
-                    <div className="space-y-3">
-                      <div className="text-[11px] font-bold text-slate-500">
-                        {lang === 'bn' ? 'রুমের অন্যান্য সদস্য তালিকা (টিক খালি ঘর):' : 'Other room members list (Empty tick box):'}
+                    <div
+                      key={m}
+                      onClick={() => {
+                        setActiveMealTab(m);
+                        setSelectedRoomMembers([]);
+                        setManualSelectedMembers([]);
+                      }}
+                      className={`p-2 sm:p-2.5 rounded-xl border transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-amber-500/20 border-amber-400 text-amber-200 shadow-md ring-1 ring-amber-400/40'
+                          : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                      }`}
+                    >
+                      <div className="font-extrabold text-[11px] truncate">{labels[m]}</div>
+                      <div className="font-mono text-[10px] text-amber-300 font-bold mt-0.5">
+                        {s ? `${s.startTime} - ${s.endTime}` : 'N/A'}
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {otherMembers.map((member) => {
-                          const isSelected = manualSelectedMembers.includes(member.staffId);
-                          const registeredUser = users.find(u => u.staffId.toLowerCase() === member.staffId.toLowerCase());
-                          const isApprovedUser = registeredUser?.status === 'approved';
-
-                          return (
-                            <button
-                              key={member.staffId}
-                              type="button"
-                              onClick={() => {
-                                if (manualSelectedMembers.includes(member.staffId)) {
-                                  setManualSelectedMembers(manualSelectedMembers.filter(id => id !== member.staffId));
-                                } else {
-                                  setManualSelectedMembers([...manualSelectedMembers, member.staffId]);
-                                }
-                              }}
-                              className={`p-3 rounded-xl border text-left flex items-center justify-between transition-all cursor-pointer ${
-                                isSelected
-                                  ? 'bg-gradient-to-tr from-indigo-600 to-indigo-500 border-transparent text-white shadow'
-                                  : 'bg-white hover:bg-indigo-50/30 border-indigo-100 text-slate-700'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2.5">
-                                {registeredUser?.userPhoto ? (
-                                  <img
-                                    src={registeredUser.userPhoto}
-                                    alt={member.name}
-                                    className={`w-8 h-8 rounded-full object-cover border transition-all ${
-                                      isSelected ? 'border-white' : 'border-indigo-100'
-                                    }`}
-                                    referrerPolicy="no-referrer"
-                                  />
-                                ) : (
-                                  <div
-                                    className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
-                                      isSelected ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-600'
-                                    }`}
-                                  >
-                                    {member.name.charAt(0)}
-                                  </div>
-                                )}
-                                <div>
-                                  <div className="text-xs font-black leading-tight flex items-center gap-1">
-                                    {member.name}
-                                    {registeredUser && (
-                                      <span 
-                                        className={`w-1.5 h-1.5 rounded-full ${
-                                          isApprovedUser ? 'bg-emerald-400' : 'bg-amber-400'
-                                        }`} 
-                                      />
-                                    )}
-                                  </div>
-                                  <div className={`text-[9px] font-mono mt-0.5 ${isSelected ? 'text-indigo-100' : 'text-slate-400'}`}>
-                                    ID: {member.staffId}
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Ticket check-box */}
-                              <div>
-                                {isSelected ? (
-                                  <div className="w-4 h-4 rounded-full bg-white text-indigo-600 flex items-center justify-center shadow">
-                                    <CheckSquare className="w-3.5 h-3.5" />
-                                  </div>
-                                ) : (
-                                  <Square className="w-4 h-4 text-indigo-300" />
-                                )}
-                              </div>
-                            </button>
-                          );
-                        })}
+                      <div className="mt-1">
+                        {isMealActive ? (
+                          <span className="bg-emerald-500/20 text-emerald-300 text-[8px] font-black px-1.5 py-0.5 rounded-md border border-emerald-500/30">
+                            ● {lang === 'bn' ? 'খোলা আছে' : 'OPEN'}
+                          </span>
+                        ) : (
+                          <span className="bg-rose-500/20 text-rose-300 text-[8px] font-black px-1.5 py-0.5 rounded-md border border-rose-500/30">
+                            ○ {lang === 'bn' ? 'বন্ধ আছে' : 'CLOSED'}
+                          </span>
+                        )}
                       </div>
-
-                      {/* Submit Demand button */}
-                      <button
-                        type="button"
-                        onClick={handleManualDemandSubmit}
-                        className="mt-2 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-xl transition shadow flex items-center justify-center gap-2 active:scale-[0.99] cursor-pointer text-xs"
-                      >
-                        <Utensils className="w-4 h-4 text-white" />
-                        <span>{lang === 'bn' ? 'ডিমান্ড করুন' : 'Submit Demand'}</span>
-                      </button>
                     </div>
                   );
-                })()}
+                })}
+              </div>
+
+              {/* Live Countdown Timer Banner for Active Selected Meal */}
+              {(() => {
+                const cd = getMealCountdownInfo(activeMealTab);
+                const mealLabel = activeMealTab === 'breakfast' 
+                  ? (lang === 'bn' ? 'সকালের' : 'Breakfast')
+                  : activeMealTab === 'lunch'
+                  ? (lang === 'bn' ? 'দুপুরের' : 'Lunch')
+                  : (lang === 'bn' ? 'রাতের' : 'Dinner');
+
+                const setting = timeSettings.find((s) => s.mealType === activeMealTab);
+
+                return (
+                  <div className={`rounded-xl p-3 border flex items-center justify-between gap-3 ${
+                    cd.status === 'open' || cd.status === 'open_bypassed'
+                      ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-200'
+                      : cd.status === 'upcoming'
+                      ? 'bg-amber-950/60 border-amber-500/40 text-amber-200'
+                      : 'bg-rose-950/60 border-rose-500/40 text-rose-200'
+                  }`}>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Clock className={`w-4.5 h-4.5 flex-shrink-0 ${
+                        cd.status === 'open' ? 'text-emerald-400 animate-spin' : 'text-amber-400'
+                      }`} />
+                      <div className="min-w-0">
+                        <div className="text-[10px] font-black uppercase tracking-wider opacity-80">
+                          {mealLabel} {lang === 'bn' ? 'ডিমান্ড সময়সূচী স্ট্যাটাস:' : 'Demand Schedule Status:'}
+                        </div>
+                        <div className="text-xs sm:text-sm font-black font-mono tracking-tight truncate">
+                          {lang === 'bn' ? cd.textBn : cd.textEn}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-right flex-shrink-0">
+                      <span className="text-[9px] font-mono bg-white/10 px-2 py-1 rounded-lg border border-white/10 block font-bold">
+                        {setting ? `${setting.startTime} - ${setting.endTime}` : ''}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+
+
+            {/* CLOSED MEAL NOTICE WHEN NOT IN TIME WINDOW */}
+            {!isRoomLocked(activeMealTab) && !isTimeActive(activeMealTab) && (
+              <div className="border border-rose-200 bg-rose-50/70 rounded-2xl p-5 text-center space-y-2.5 shadow-sm" id="time-closed-notice">
+                <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 mx-auto border border-rose-200">
+                  <Clock className="w-5 h-5 animate-pulse" />
+                </div>
+                <div className="text-xs sm:text-sm font-black text-rose-900">
+                  {lang === 'bn' 
+                    ? `বর্তমানে ${activeMealTab === 'breakfast' ? 'সকালের' : activeMealTab === 'lunch' ? 'দুপুরের' : 'রাতের'} ডিমান্ড দেওয়ার সময় বন্ধ রয়েছে!`
+                    : `${activeMealTab.toUpperCase()} demand submission window is currently closed!`}
+                </div>
+                <p className="text-[11px] text-rose-700 max-w-md mx-auto leading-relaxed font-medium">
+                  {lang === 'bn'
+                    ? `অ্যাডমিন সেট করা নির্ধারিত সময়ের মধ্যে (${timeSettings.find(s => s.mealType === activeMealTab)?.startTime || '00:00'} থেকে ${timeSettings.find(s => s.mealType === activeMealTab)?.endTime || '00:00'}) ডিমান্ড জমা দিতে পারবেন। অটো ডিমান্ড চালু থাকলে নির্দিষ্ট সময়ে স্বয়ংক্রিয়ভাবে ডিমান্ড জমা হবে।`
+                    : `You can only submit demands during the admin set schedule (${timeSettings.find(s => s.mealType === activeMealTab)?.startTime} - ${timeSettings.find(s => s.mealType === activeMealTab)?.endTime}). Enable Auto Demand for automated submission.`}
+                </p>
               </div>
             )}
 
@@ -1706,7 +1882,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                       
                       <h4 className="font-extrabold text-sm text-slate-800">
                         {isServed 
-                          ? (lang === 'bn' ? '🍛 খাবার বিতরণ সম্পূর্ণ!' : '🍛 Meals Served & Logged!')
+                          ? (lang === 'bn' ? '✅ খাবার দেওয়া হয়েছে!' : '✅ Food Served & Delivered!')
                           : isApproved 
                           ? (lang === 'bn' ? '👍 ডিমান্ড এডমিন দ্বারা অনুমোদিত!' : '👍 Demand Approved by Admin!')
                           : (lang === 'bn' ? '⏳ খাবার ডিমান্ড অনুমোদন পেন্ডিং' : '⏳ Food Demand Pending Admin Approval')}
@@ -1768,7 +1944,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                                 <div className="pt-1">
                                   {isStaffServed ? (
                                     <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100 animate-pulse">
-                                      ✅ {lang === 'bn' ? 'খাওয়া শেষ' : 'Dined'}
+                                      ✅ {lang === 'bn' ? 'খাবার দেওয়া হয়েছে' : 'Food Served'}
                                       {staffDem?.servedAt && ` (${new Date(staffDem.servedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})`}
                                     </span>
                                   ) : isStaffApproved ? (
@@ -1788,11 +1964,46 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                       </div>
                     </div>
 
-                    <div className="text-[10px] text-slate-400 font-mono flex items-center justify-center gap-1.5 pt-2 border-t border-orange-50">
-                      <span>Submitted by: <strong>{representativeDemand?.submittedByName}</strong></span>
+                    <div className="text-[10px] text-slate-500 font-mono flex flex-wrap items-center justify-center gap-2 pt-2 border-t border-orange-50">
+                      {(representativeDemand?.isAutoDemand || representativeDemand?.demandMethod === 'auto' || representativeDemand?.submittedBy === 'AUTO_SYSTEM') && (
+                        <span className="bg-purple-100 text-purple-800 border border-purple-200 px-2 py-0.5 rounded-full text-[9px] font-black">
+                          🤖 {lang === 'bn' ? 'অটো ডিমান্ড' : 'Auto Demand'}
+                        </span>
+                      )}
+                      <span>{lang === 'bn' ? 'জমাদানকারী:' : 'Submitted by:'} <strong>{representativeDemand?.submittedByName}</strong></span>
                       <span>•</span>
-                      <span>Time: <strong>{representativeDemand?.timestamp ? new Date(representativeDemand.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}</strong></span>
+                      <span>{lang === 'bn' ? 'তারিখ ও সময়:' : 'Date & Time:'} <strong>{representativeDemand?.timestamp ? `${new Date(representativeDemand.timestamp).toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US')} ${new Date(representativeDemand.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}` : ''}</strong></span>
                     </div>
+
+                    {/* CANCEL DEMAND BUTTON DURING OPEN TIME WINDOW */}
+                    {!isServed && (isTimeActive(activeMealTab) || bypassTimeControls) ? (
+                      <div className="pt-3 border-t border-orange-100 flex flex-col items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(lang === 'bn' 
+                              ? 'আপনি কি নিশ্চিত যে এই সময়ের খাবার ডিমান্ড বাতিল করতে চান? বাতিল করলে তা এডমিনের কাছ থেকে ডিলিট হয়ে যাবে।' 
+                              : 'Are you sure you want to cancel this demand? It will be removed from admin view.')) {
+                              if (onCancelDemand) {
+                                onCancelDemand(activeMealTab, currentUser.roomNumber);
+                                showToast(lang === 'bn' ? 'ডিমান্ড সফলভাবে বাতিল করা হয়েছে!' : 'Demand cancelled successfully!', 'info');
+                              }
+                            }
+                          }}
+                          className="bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white font-extrabold text-xs px-5 py-2.5 rounded-xl transition shadow-md hover:shadow-rose-500/20 flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span>{lang === 'bn' ? 'ডিমান্ড বাতিল করুন (Cancel Demand)' : 'Cancel Meal Demand'}</span>
+                        </button>
+                        <p className="text-[10px] text-rose-600 font-medium">
+                          {lang === 'bn' ? 'এডমিন সেট করা নির্দিষ্ট সময়ের ভেতর থাকলে ডিমান্ড বাতিল করা যাবে।' : 'Demand can be cancelled during admin set open window.'}
+                        </p>
+                      </div>
+                    ) : !isServed && (
+                      <div className="pt-2 border-t border-orange-100 text-[10px] text-rose-500 font-medium text-center">
+                        {lang === 'bn' ? '🔒 সময়সীমা শেষ হওয়ায় ডিমান্ড বাতিল করা যাবে না।' : '🔒 Deadline passed; demand cannot be cancelled.'}
+                      </div>
+                    )}
                   </div>
                 );
               })()

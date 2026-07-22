@@ -65,6 +65,8 @@ export interface MealDemand {
   status: 'pending' | 'approved' | 'served' | 'rejected';
   timestamp: string; // Time of demand submission
   servedAt?: string; // Time when served
+  isAutoDemand?: boolean; // Flag indicating auto demand
+  demandMethod?: 'manual' | 'auto';
 }
 
 export interface PreLoadedStaff {
@@ -76,6 +78,7 @@ export interface PreLoadedStaff {
 }
 
 export interface TimeSetting {
+  id: string;
   mealType: MealType;
   startTime: string; // "HH:MM" 24h
   endTime: string;   // "HH:MM" 24h

@@ -38,12 +38,31 @@ export default function App() {
   const [foodMenu, setFoodMenu] = useState<FoodMenuItem[]>([]);
   const [rooms, setRooms] = useState<RoomConfig[]>([]);
 
+  // Track cancelled/deleted auto demand keys to prevent auto-recreation loop
+  const [cancelledDemandKeys, setCancelledDemandKeys] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("cancelled_demands_db");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const addCancelledKeys = (keys: string[]) => {
+    if (!keys || keys.length === 0) return;
+    setCancelledDemandKeys((prev) => {
+      const updated = Array.from(new Set([...prev, ...keys]));
+      localStorage.setItem("cancelled_demands_db", JSON.stringify(updated));
+      return updated;
+    });
+  };
+
   // Admin Login Credentials
   const [adminUser, setAdminUser] = useState('admin');
   const [adminPass, setAdminPass] = useState('password123');
 
-  // Bypass Time-Constraints (true by default so users can test food booking at any hour!)
-  const [bypassTimeControls, setBypassTimeControls] = useState(true);
+  // Bypass Time-Constraints (false by default so strict admin meal schedules are enforced)
+  const [bypassTimeControls, setBypassTimeControls] = useState(false);
 
   // Active View Mode: 'staff' | 'admin'
   const [viewMode, setViewModeState] = useState<'staff' | 'admin'>(() => {
@@ -133,7 +152,11 @@ export default function App() {
     const localDemands = cleanAndSplitDemands(rawLocalDemands);
     const localNotices = getOrSet('notices_db', INITIAL_NOTICES);
     const localChats = getOrSet('chats_db', INITIAL_CHATS);
-    const localTimes = getOrSet('times_db', INITIAL_TIME_SETTINGS);
+    const rawLocalTimes = getOrSet('times_db', INITIAL_TIME_SETTINGS);
+    const localTimes = (Array.isArray(rawLocalTimes) ? rawLocalTimes : INITIAL_TIME_SETTINGS).map((t: any) => ({
+      ...t,
+      id: t.id || t.mealType || `time-${Math.random()}`
+    }));
     const localLogs = getOrSet('logs_db', INITIAL_LOGS);
     const localMenu = getOrSet('food_menu_db', INITIAL_FOOD_MENU);
     const localRooms = getOrSet('rooms_db', INITIAL_ROOMS);
@@ -217,9 +240,26 @@ export default function App() {
         }
       });
       const unsubTimes = listenToCollection('times_db', (data) => {
-        if (isSubscribed) {
-          setTimeSettings(data);
-          localStorage.setItem('times_db', JSON.stringify(data));
+        if (isSubscribed && Array.isArray(data)) {
+          // Check if there is a bypass toggle document in times_db
+          const bypassDoc = data.find((item: any) => item.id === 'bypass_config' || item.mealType === 'bypass');
+          if (bypassDoc && typeof bypassDoc.enabled === 'boolean') {
+            setBypassTimeControls(bypassDoc.enabled);
+            localStorage.setItem('bypass_time', String(bypassDoc.enabled));
+          }
+
+          // Filter standard meal times and enforce required id property
+          const mealTimes = data
+            .filter((item: any) => item && item.mealType && ['breakfast', 'lunch', 'dinner'].includes(item.mealType))
+            .map((item: any) => ({
+              ...item,
+              id: item.id || item.mealType
+            }));
+
+          if (mealTimes.length > 0) {
+            setTimeSettings(mealTimes);
+            localStorage.setItem('times_db', JSON.stringify(mealTimes));
+          }
         }
       });
       const unsubLogs = listenToCollection('logs_db', (data) => {
@@ -293,37 +333,47 @@ export default function App() {
   useEffect(() => {
     if (users.length === 0) return;
 
-    // Local helper to check if current time is active for a meal
+    // Local helper to check if current time is active for a meal (Bangladesh Time)
     const isMealTimeActive = (mealType: MealType) => {
       if (bypassTimeControls) return true;
       const setting = timeSettings.find((s) => s.mealType === mealType);
-      if (!setting) return false;
+      if (!setting || !setting.startTime || !setting.endTime) return false;
 
-      const now = new Date();
-      const currentStr = `${String(now.getHours()).padStart(2, '0')}:${String(
-        now.getMinutes()
-      ).padStart(2, '0')}`;
-      return currentStr >= setting.startTime && currentStr <= setting.endTime;
+      const options = { timeZone: 'Asia/Dhaka', hour12: false, hour: '2-digit', minute: '2-digit' } as const;
+      const parts = new Intl.DateTimeFormat('en-US', options).formatToParts(new Date());
+      let h = '00', m = '00';
+      parts.forEach(p => {
+        if (p.type === 'hour') h = p.value;
+        if (p.type === 'minute') m = p.value;
+      });
+      if (h === '24') h = '00';
+      const currentStr = `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
+
+      if (setting.startTime <= setting.endTime) {
+        return currentStr >= setting.startTime && currentStr <= setting.endTime;
+      } else {
+        return currentStr >= setting.startTime || currentStr <= setting.endTime;
+      }
     };
 
-    // Get today's local date string YYYY-MM-DD
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
+    // Get today's Bangladesh date string YYYY-MM-DD
+    const bdNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Dhaka" }));
+    const yyyy = bdNow.getFullYear();
+    const mm = String(bdNow.getMonth() + 1).padStart(2, '0');
+    const dd = String(bdNow.getDate()).padStart(2, '0');
     const todayStr = `${yyyy}-${mm}-${dd}`;
 
-    // Get current day of the week
-    const dayIndex = today.getDay();
+    // Get current day of the week in Bangladesh
+    const dayIndex = bdNow.getDay();
     const weekdayKeys = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
     const currentDayKey = weekdayKeys[dayIndex];
 
-    // Filter approved users with active Auto Demand
-    const autoUsers = users.filter((u) => u.status === 'approved' && u.autoDemand && u.autoDemand.enabled);
-    if (autoUsers.length === 0) return;
-
+    const mealTypesList: MealType[] = ['breakfast', 'lunch', 'dinner'];
     const newDemandsToCreate: MealDemand[] = [];
 
+    // 1. Filter approved users with explicit user-level Auto Demand enabled
+    const autoUsers = users.filter((u) => u.status === 'approved' && u.autoDemand && u.autoDemand.enabled);
+    
     autoUsers.forEach((u) => {
       const config = u.autoDemand!;
       const meals: MealType[] = [];
@@ -334,7 +384,6 @@ export default function App() {
         if (daySchedule.lunch) meals.push('lunch');
         if (daySchedule.dinner) meals.push('dinner');
       } else {
-        // Fallback for legacy configuration
         const legacy = config as any;
         if (legacy.breakfast) meals.push('breakfast');
         if (legacy.lunch) meals.push('lunch');
@@ -342,15 +391,16 @@ export default function App() {
       }
 
       meals.forEach((meal) => {
-        // Only trigger if the meal timeframe is currently open/active
         if (!isMealTimeActive(meal)) return;
 
-        // Check if there is already an existing non-rejected demand for this user, this meal, and today
-        const hasExistingDemand = demands.some((d) => 
+        const staffKey = `staff:${u.staffId.toLowerCase()}:${meal}:${todayStr}`;
+        const roomKey = `room:${u.roomNumber}:${meal}:${todayStr}`;
+        const isCancelled = cancelledDemandKeys.includes(staffKey) || cancelledDemandKeys.includes(roomKey);
+
+        const hasExistingDemand = isCancelled || demands.some((d) => 
           d.date === todayStr && 
           d.mealType === meal && 
-          d.status !== 'rejected' &&
-          d.selectedStaffIds.map(sid => sid.toLowerCase()).includes(u.staffId.toLowerCase())
+          (d.selectedStaffIds.map(sid => sid.toLowerCase()).includes(u.staffId.toLowerCase()) || d.roomNumber === u.roomNumber)
         );
 
         if (!hasExistingDemand) {
@@ -362,9 +412,11 @@ export default function App() {
             date: todayStr,
             selectedStaffIds: [u.staffId],
             submittedBy: u.staffId,
-            submittedByName: `${u.name} (Auto)`,
+            submittedByName: `${u.name} (অটো ডিমান্ড)`,
             status: 'pending',
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            isAutoDemand: true,
+            demandMethod: 'auto'
           };
           newDemandsToCreate.push(newDem);
         }
@@ -385,15 +437,14 @@ export default function App() {
 
       // Log activity
       newDemandsToCreate.forEach((d) => {
-        const userObj = users.find((u) => u.staffId.toLowerCase() === d.submittedBy.toLowerCase());
         pushActivityLog(
           'Auto Demand Submitted',
-          `System automatically submitted ${d.mealType.toUpperCase()} demand for Room ${d.roomNumber} (${userObj?.name || d.submittedBy})`,
+          `অটো ডিমান্ড সিস্টেম স্বয়ংক্রিয়ভাবে ${d.mealType.toUpperCase()} ডিমান্ড তৈরি করেছে (রুম: ${d.roomNumber})`,
           'System Auto'
         );
       });
     }
-  }, [users, demands, timeSettings, bypassTimeControls]);
+  }, [users, demands, timeSettings, bypassTimeControls, cancelledDemandKeys]);
 
   // Helpers to push updates to storage (local storage and Firestore concurrently)
   const saveToStorage = (key: string, data: any) => {
@@ -523,7 +574,7 @@ export default function App() {
 
     setAdminUser('admin');
     setAdminPass('password123');
-    setBypassTimeControls(true);
+    setBypassTimeControls(false);
     setLoggedInUser(null);
     setAdminIsLoggedIn(false);
     pushActivityLog('Database Reset', 'System restarted with default sample data.', 'System');
@@ -623,6 +674,17 @@ export default function App() {
     if (!loggedInUser) return;
 
     const todayStr = new Date().toISOString().split('T')[0];
+
+    // Clear cancellation keys if user explicitly submits a manual demand
+    const keysToRemove = [
+      `room:${loggedInUser.roomNumber}:${mealType}:${todayStr}`,
+      ...selectedStaffIds.map((sid) => `staff:${sid.toLowerCase()}:${mealType}:${todayStr}`)
+    ];
+    setCancelledDemandKeys((prev) => {
+      const updated = prev.filter((k) => !keysToRemove.includes(k));
+      localStorage.setItem("cancelled_demands_db", JSON.stringify(updated));
+      return updated;
+    });
 
     // Split group submission into individual demands per staff ID for independent admin actions
     const newDemands: MealDemand[] = selectedStaffIds.map((staffId, index) => ({
@@ -929,6 +991,14 @@ export default function App() {
 
   const handleRejectDemand = (demandId: string) => {
     let rejectedDemand: MealDemand | null = null;
+    const dObj = demands.find((d) => d.id === demandId);
+    if (dObj) {
+      const keys = [
+        `room:${dObj.roomNumber}:${dObj.mealType}:${dObj.date}`,
+        ...dObj.selectedStaffIds.map((sid) => `staff:${sid.toLowerCase()}:${dObj.mealType}:${dObj.date}`)
+      ];
+      addCancelledKeys(keys);
+    }
     setDemands((prev) => {
       const updated = prev.map((d) => {
         if (d.id === demandId) {
@@ -946,7 +1016,6 @@ export default function App() {
       return updated;
     });
 
-    const dObj = demands.find((d) => d.id === demandId);
     pushActivityLog(
       'Demand Rejected',
       `Admin rejected ${dObj?.mealType.toUpperCase()} demand for Room ${dObj?.roomNumber}`,
@@ -984,13 +1053,20 @@ export default function App() {
   const handleAddTimeSetting = (mealType: MealType, startTime: string, endTime: string) => {
     let updatedSetting: TimeSetting | null = null;
     setTimeSettings((prev) => {
-      const updated = prev.map((s) => {
+      const prevArr = Array.isArray(prev) && prev.length > 0 ? prev : INITIAL_TIME_SETTINGS;
+      let found = false;
+      const updated = prevArr.map((s) => {
         if (s.mealType === mealType) {
-          updatedSetting = { ...s, startTime, endTime };
+          found = true;
+          updatedSetting = { ...s, id: s.id || mealType, mealType, startTime, endTime };
           return updatedSetting;
         }
-        return s;
+        return { ...s, id: s.id || s.mealType };
       });
+      if (!found) {
+        updatedSetting = { id: mealType, mealType, startTime, endTime };
+        updated.push(updatedSetting);
+      }
       setTimeout(() => {
         localStorage.setItem('times_db', JSON.stringify(updated));
         if (updatedSetting) {
@@ -999,7 +1075,7 @@ export default function App() {
       }, 0);
       return updated;
     });
-    pushActivityLog('Schedule Timer Updated', `${mealType.toUpperCase()} hours modified.`, 'Admin');
+    pushActivityLog('Schedule Timer Updated', `${mealType.toUpperCase()} hours modified to ${startTime} - ${endTime}.`, 'Admin');
   };
 
   const handleAddNotice = (title: string, content: string) => {
@@ -1069,6 +1145,15 @@ export default function App() {
 
   const handleDeleteDemandsByDateAndMeal = (date: string, mealType: MealType) => {
     const targetDemands = demands.filter((d) => d.date === date && d.mealType === mealType);
+    const keys: string[] = [];
+    targetDemands.forEach((d) => {
+      keys.push(`room:${d.roomNumber}:${mealType}:${date}`);
+      d.selectedStaffIds.forEach((sid) => {
+        keys.push(`staff:${sid.toLowerCase()}:${mealType}:${date}`);
+      });
+    });
+    addCancelledKeys(keys);
+
     setDemands((prev) => {
       const updated = prev.filter((d) => !(d.date === date && d.mealType === mealType));
       setTimeout(() => {
@@ -1089,6 +1174,14 @@ export default function App() {
   };
 
   const handleDeleteDemand = (demandId: string) => {
+    const dObj = demands.find((d) => d.id === demandId);
+    if (dObj) {
+      const keys = [
+        `room:${dObj.roomNumber}:${dObj.mealType}:${dObj.date}`,
+        ...dObj.selectedStaffIds.map((sid) => `staff:${sid.toLowerCase()}:${dObj.mealType}:${dObj.date}`)
+      ];
+      addCancelledKeys(keys);
+    }
     setDemands((prev) => {
       const updated = prev.filter((d) => d.id !== demandId);
       setTimeout(() => {
@@ -1099,11 +1192,56 @@ export default function App() {
     // Explicitly delete from Firestore
     deleteDocFromFirestore('demands_db', demandId);
 
-    pushActivityLog('Demand Deleted', `Admin deleted meal demand record.`, 'Admin');
+    pushActivityLog('Demand Deleted', `Deleted meal demand record.`, 'User');
+  };
+
+  const handleCancelRoomDemand = (mealType: MealType, roomNumber: string) => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const demandsToCancel = demands.filter(
+      (d) => d.roomNumber === roomNumber && d.mealType === mealType && d.date === todayStr
+    );
+
+    const keys = [`room:${roomNumber}:${mealType}:${todayStr}`];
+    demandsToCancel.forEach((d) => {
+      d.selectedStaffIds.forEach((sid) => {
+        keys.push(`staff:${sid.toLowerCase()}:${mealType}:${todayStr}`);
+      });
+    });
+    addCancelledKeys(keys);
+
+    if (demandsToCancel.length === 0) return;
+
+    setDemands((prev) => {
+      const updated = prev.filter(
+        (d) => !(d.roomNumber === roomNumber && d.mealType === mealType && d.date === todayStr)
+      );
+      setTimeout(() => {
+        localStorage.setItem('demands_db', JSON.stringify(updated));
+      }, 0);
+      return updated;
+    });
+
+    demandsToCancel.forEach((d) => {
+      deleteDocFromFirestore('demands_db', d.id);
+    });
+
+    pushActivityLog(
+      'Demand Cancelled',
+      `Room ${roomNumber} cancelled ${mealType.toUpperCase()} demand for ${todayStr}`,
+      loggedInUser ? loggedInUser.name : 'Staff'
+    );
   };
 
   const handleDeleteAllRejectedDemands = () => {
     const rejectedDemands = demands.filter((d) => d.status === 'rejected');
+    const keys: string[] = [];
+    rejectedDemands.forEach((d) => {
+      keys.push(`room:${d.roomNumber}:${d.mealType}:${d.date}`);
+      d.selectedStaffIds.forEach((sid) => {
+        keys.push(`staff:${sid.toLowerCase()}:${d.mealType}:${d.date}`);
+      });
+    });
+    addCancelledKeys(keys);
     setDemands((prev) => {
       const updated = prev.filter((d) => d.status !== 'rejected');
       setTimeout(() => {
@@ -1198,6 +1336,7 @@ export default function App() {
     setBypassTimeControls((prev) => {
       const newVal = !prev;
       localStorage.setItem('bypass_time', String(newVal));
+      saveDocToFirestore('times_db', { id: 'bypass_config', mealType: 'bypass', enabled: newVal });
       pushActivityLog('Timer Mode Updated', `Bypass scheduled timer is now ${newVal ? 'ON' : 'OFF'}`, 'Admin');
       return newVal;
     });
@@ -1319,6 +1458,7 @@ export default function App() {
             onSendChatMessage={handleSendChatMessage}
             onSwitchToAdmin={() => setViewMode('admin')}
             onUpdateAutoDemand={handleUpdateUserAutoDemand}
+            onCancelDemand={handleCancelRoomDemand}
           />
         )}
 

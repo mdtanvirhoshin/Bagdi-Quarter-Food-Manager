@@ -503,6 +503,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Distribution State: Room Selector
   const [selectedRoomNum, setSelectedRoomNum] = useState<string | null>(null);
   const [roomFilterStatus, setRoomFilterStatus] = useState<'all' | 'pending' | 'served'>('all');
+  const [distMealFilter, setDistMealFilter] = useState<'all' | 'breakfast' | 'lunch' | 'dinner'>('all');
   const [distSearchQuery, setDistSearchQuery] = useState('');
   const [quickDeleteDate, setQuickDeleteDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [quickDeleteMealType, setQuickDeleteMealType] = useState<MealType>('breakfast');
@@ -752,9 +753,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setTimeout(() => setSettingsSuccess(''), 3000);
   };
 
+  // Get Room Demands List
+  const getRoomDemandsList = (roomNumStr: string) => {
+    return todayDemands.filter((d) => {
+      const matchRoom = d.roomNumber === roomNumStr;
+      const matchMeal = distMealFilter === 'all' || d.mealType === distMealFilter;
+      return matchRoom && matchMeal;
+    });
+  };
+
   // Get Room Status Class for visual grid
   const getRoomVisualState = (roomNumStr: string) => {
-    const roomDems = todayDemands.filter((d) => d.roomNumber === roomNumStr);
+    const roomDems = getRoomDemandsList(roomNumStr);
     if (roomDems.length === 0) return 'bg-white text-slate-700 border-slate-200 hover:border-slate-400';
 
     const hasPending = roomDems.some((d) => d.status === 'pending');
@@ -766,11 +776,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     if (allServed) return 'bg-emerald-600 border-emerald-600 text-white shadow-sm';
 
     return 'bg-slate-100 border-slate-200 text-slate-500';
-  };
-
-  // Get Room Demands List
-  const getRoomDemandsList = (roomNumStr: string) => {
-    return todayDemands.filter((d) => d.roomNumber === roomNumStr);
   };
 
   return (
@@ -1097,6 +1102,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     )}
                   </div>
 
+                  {/* Meal Type Filter Tabs (All, Breakfast, Lunch, Dinner) */}
+                  <div className="flex bg-slate-900 text-white p-1 rounded-xl shadow-sm border border-slate-800">
+                    {([
+                      { id: 'all', label: lang === 'bn' ? 'অল (সব)' : 'All' },
+                      { id: 'breakfast', label: lang === 'bn' ? '🍳 সকাল' : 'Breakfast' },
+                      { id: 'lunch', label: lang === 'bn' ? '🍛 দুপুর' : 'Lunch' },
+                      { id: 'dinner', label: lang === 'bn' ? '🍗 রাত' : 'Dinner' },
+                    ] as const).map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => setDistMealFilter(m.id)}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                          distMealFilter === m.id
+                            ? 'bg-indigo-600 text-white shadow'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+
                   {/* Status Filter */}
                   <div className="flex bg-slate-100 p-1 rounded-xl">
                     {([
@@ -1183,8 +1210,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {mergedMatches.map((member) => {
-                        // Find if this specific member has any demand placed for today
-                        const userDemandsToday = staffTodayDemandsMap.get(member.staffId.toLowerCase()) || [];
+                        // Find if this specific member has any demand placed for today matching meal filter
+                        const rawUserDems = staffTodayDemandsMap.get(member.staffId.toLowerCase()) || [];
+                        const userDemandsToday = rawUserDems.filter(
+                          (d) => distMealFilter === 'all' || d.mealType === distMealFilter
+                        );
 
                         return (
                           <div
@@ -1529,17 +1559,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           {roomDems.map((dem) => (
                             <div key={dem.id} className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3 shadow-sm">
                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2">
-                                <div>
-                                  <span className="font-extrabold uppercase text-xs text-indigo-600">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-extrabold uppercase text-xs text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-lg border border-indigo-100">
                                     {t[dem.mealType]}
                                   </span>
-                                  <span className="text-[10px] text-slate-400 font-mono ml-2">
-                                    Time: {new Date(dem.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+
+                                  {(dem.isAutoDemand || dem.demandMethod === 'auto' || dem.submittedBy === 'AUTO_SYSTEM') && (
+                                    <span className="inline-flex items-center gap-1 bg-purple-100 text-purple-800 border border-purple-200 px-2.5 py-0.5 rounded-full text-[10px] font-black shadow-xs">
+                                      🤖 {lang === 'bn' ? 'অটো ডিমান্ড' : 'Auto Demand'}
+                                    </span>
+                                  )}
+
+                                  <span className="text-[10px] text-slate-500 font-mono flex items-center gap-1 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+                                    <Clock className="w-3 h-3 text-slate-400" />
+                                    <span>{lang === 'bn' ? 'তারিখ ও সময়:' : 'Date & Time:'}</span>
+                                    <strong className="text-slate-800">
+                                      {new Date(dem.timestamp).toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US')} {new Date(dem.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                    </strong>
                                   </span>
                                 </div>
                                 <div>
                                   <span className="text-xs font-bold text-slate-500">
-                                    Status: <strong className="text-slate-800 uppercase">{dem.status}</strong>
+                                    Status: <strong className={`uppercase ${dem.status === 'served' ? 'text-emerald-600' : dem.status === 'approved' ? 'text-indigo-600' : 'text-amber-600'}`}>{dem.status}</strong>
                                   </span>
                                 </div>
                               </div>
@@ -1564,32 +1605,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                             setSelectedMemberDetail(regUser);
                                           }
                                         }}
-                                        className={`bg-slate-50/50 border rounded-xl p-2.5 flex gap-2.5 items-center relative overflow-hidden transition hover:bg-slate-100/60 ${
-                                          regUser ? 'cursor-pointer border-indigo-100' : 'border-slate-100'
-                                        } ${
-                                          isApproved ? 'border-emerald-100 bg-emerald-50/5' : ''
-                                        }`}
-                                        title={regUser ? (lang === 'bn' ? 'সদস্যের সম্পূর্ণ তথ্য ও আইডি দেখতে ক্লিক করুন' : 'Click to inspect complete profile & ID cards') : ''}
-                                      >
-                                        {regUser?.userPhoto ? (
-                                          <img
-                                            src={regUser.userPhoto}
-                                            alt={sObj?.name || sid}
-                                            className="w-10 h-10 rounded-full object-cover border border-slate-200"
-                                            referrerPolicy="no-referrer"
-                                          />
-                                        ) : (
-                                          <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center font-bold text-xs border">
-                                            {(sObj?.name || sid).charAt(0)}
-                                          </div>
-                                        )}
-                                        <div className="min-w-0 flex-1">
-                                          <div className="text-[11px] font-extrabold text-slate-800 truncate flex items-center gap-1">
-                                            <span>{sObj?.name || regUser?.name || 'Unknown'}</span>
-                                            {regUser && (
-                                              <span className={`w-1.5 h-1.5 rounded-full ${isApproved ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
-                                            )}
-                                          </div>
+                                         className={`bg-slate-50/50 border rounded-xl p-2.5 flex gap-2.5 items-center relative overflow-hidden transition hover:bg-slate-100/60 ${
+                                           regUser ? 'cursor-pointer border-indigo-100' : 'border-slate-100'
+                                         } ${
+                                           isApproved ? 'border-emerald-100 bg-emerald-50/5' : ''
+                                         }`}
+                                         title={regUser ? (lang === 'bn' ? 'সদস্যের সম্পূর্ণ তথ্য ও আইডি দেখতে ক্লিক করুন' : 'Click to inspect complete profile & ID cards') : ''}
+                                       >
+                                         {regUser?.userPhoto ? (
+                                           <img
+                                             src={regUser.userPhoto}
+                                             alt={sObj?.name || sid}
+                                             className="w-10 h-10 rounded-full object-cover border border-slate-200"
+                                             referrerPolicy="no-referrer"
+                                           />
+                                         ) : (
+                                           <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center font-bold text-xs border">
+                                             {(sObj?.name || sid).charAt(0)}
+                                           </div>
+                                         )}
+                                          <div className="min-w-0 flex-1">
+                                            <div className="text-[11px] font-extrabold text-slate-800 truncate flex items-center gap-1">
+                                              <span>{sObj?.name || regUser?.name || 'Unknown'}</span>
+                                              {regUser && (
+                                                <span className={`w-1.5 h-1.5 rounded-full ${isApproved ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+                                              )}
+                                            </div>
                                           <div className="text-[9px] font-mono text-slate-500 flex items-center justify-between">
                                             <span>ID: {sid}</span>
                                             {regUser && (
@@ -2116,35 +2157,74 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         {/* TAB 4: TIME CONTROL SETTINGS */}
         {activeTab === 'time' && (
           <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-6" id="admin-time-view">
-            <div>
-              <h3 className="text-base font-bold text-slate-800">{t.timeControl}</h3>
-              <p className="text-xs text-slate-400 mt-0.5">{lang === 'bn' ? 'প্রতিটি মিলের জন্য ডিমান্ড সাবমিট করার সময়সীমা পরিবর্তন করুন।' : 'Modify open and close hours for meal demands.'}</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-800">{t.timeControl}</h3>
+                <p className="text-xs text-slate-400 mt-0.5">{lang === 'bn' ? 'প্রতিটি মিলের জন্য ডিমান্ড সাবমিট করার সময়সীমা ও টাইমার কন্ট্রোল সচল/বন্ধ করুন।' : 'Modify open and close hours for meal demands and toggle time constraints.'}</p>
+              </div>
+
+              {/* Master Bypass Switch */}
+              <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-2xl flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-xs font-black text-slate-800">
+                    {lang === 'bn' ? 'ডিমান্ড সময়সীমা বাইপাস (Bypass Timer):' : 'Bypass Meal Window Constraint:'}
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-medium mt-0.5">
+                    {bypassTimeControls 
+                      ? (lang === 'bn' ? '⚡ যেকোনো সময় ডিমান্ড দেওয়া যাবে' : '⚡ Demands allowed 24/7')
+                      : (lang === 'bn' ? '🔒 শুধুমাত্র নির্ধারিত সময়ে ডিমান্ড দেওয়া যাবে' : '🔒 Strict meal time window enforced')}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onToggleBypassTime}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    bypassTimeControls ? 'bg-emerald-500' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      bypassTimeControls ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
 
             <div className="space-y-4 max-w-xl">
+              <div className="text-xs font-black text-slate-700 uppercase tracking-wider">
+                {lang === 'bn' ? 'মিলের সময়সূচী (বাংলাদেশ সময়):' : 'Meal Time Schedule (Bangladesh Time):'}
+              </div>
+
               {(['breakfast', 'lunch', 'dinner'] as MealType[]).map((mType) => {
-                const setting = timeSettings.find((s) => s.mealType === mType) || { startTime: '06:00', endTime: '08:00' };
+                const setting = timeSettings.find((s) => s.mealType === mType) || { id: mType, mealType: mType, startTime: '06:00', endTime: '08:00' };
                 return (
                   <div key={mType} className="bg-slate-50 border border-slate-200 rounded-2xl p-4 grid grid-cols-1 md:grid-cols-3 items-center gap-4">
-                    <span className="font-extrabold uppercase text-xs text-indigo-700">{t[mType]}</span>
+                    <span className="font-extrabold uppercase text-xs text-indigo-700 flex items-center gap-1.5">
+                      {mType === 'breakfast' && '🍳'}
+                      {mType === 'lunch' && '🍛'}
+                      {mType === 'dinner' && '🍲'}
+                      {t[mType]}
+                    </span>
                     
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-slate-400">Start:</span>
+                      <span className="text-[10px] text-slate-400 font-bold">Start:</span>
                       <input
                         type="time"
-                        defaultValue={setting.startTime}
+                        value={setting.startTime}
                         onChange={(e) => onAddTimeSetting(mType, e.target.value, setting.endTime)}
-                        className="bg-white border rounded-lg px-2 py-1 text-xs font-semibold focus:outline-none focus:border-indigo-500"
+                        className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold focus:outline-none focus:border-indigo-500"
                       />
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-slate-400">End:</span>
+                      <span className="text-[10px] text-slate-400 font-bold">End:</span>
                       <input
                         type="time"
-                        defaultValue={setting.endTime}
+                        value={setting.endTime}
                         onChange={(e) => onAddTimeSetting(mType, setting.startTime, e.target.value)}
-                        className="bg-white border rounded-lg px-2 py-1 text-xs font-semibold focus:outline-none focus:border-indigo-500"
+                        className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold focus:outline-none focus:border-indigo-500"
                       />
                     </div>
                   </div>
