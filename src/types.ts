@@ -121,6 +121,20 @@ export interface ActivityLog {
   details: string;
   timestamp: string;
   user: string;
+  ip?: string;
+  deviceName?: string;
+  deviceModel?: string;
+  macFP?: string;
+}
+
+export interface BlockedDevice {
+  id: string;
+  ip?: string;
+  macFP?: string;
+  deviceModel?: string;
+  deviceName?: string;
+  blockedAt: string;
+  reason?: string;
 }
 
 export interface FoodMenuItem {

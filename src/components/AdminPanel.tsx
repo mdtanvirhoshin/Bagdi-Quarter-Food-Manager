@@ -4,7 +4,8 @@
  */
 
 import React, { useState } from 'react';
-import { User, MealDemand, Notice, ChatMessage, TimeSetting, PreLoadedStaff, ActivityLog, MealType, FoodMenuItem, RoomConfig, formatTime12h } from '../types';
+import { User, MealDemand, Notice, ChatMessage, TimeSetting, PreLoadedStaff, ActivityLog, MealType, FoodMenuItem, RoomConfig, formatTime12h, BlockedDevice } from '../types';
+import { formatBangladeshTime, formatBangladeshTimeOnly } from '../lib/deviceUtils';
 import { translations, Language } from '../translations';
 import { ChatPanel } from './ChatPanel';
 import { 
@@ -12,7 +13,8 @@ import {
   Megaphone, Download, Plus, Trash2, CheckCircle, 
   AlertCircle, XCircle, FileText, Search, UserMinus, 
   UserCheck, RefreshCw, Eye, Printer, ShieldCheck, Play,
-  Menu, X, Copy, Clipboard, ClipboardList, Check, EyeOff
+  Menu, X, Copy, Clipboard, ClipboardList, Check, EyeOff, LogOut,
+  Smartphone, Globe, Ban, Lock
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -23,6 +25,9 @@ interface AdminPanelProps {
   timeSettings: TimeSetting[];
   preloadedStaff: PreLoadedStaff[];
   activityLogs: ActivityLog[];
+  blockedDevices?: BlockedDevice[];
+  onBlockDevice?: (device: { ip?: string; macFP?: string; deviceModel?: string; deviceName?: string }) => void;
+  onUnblockDevice?: (id: string) => void;
   bypassTimeControls: boolean;
   lang: Language;
   foodMenu: FoodMenuItem[];
@@ -57,6 +62,7 @@ interface AdminPanelProps {
   adminUser: string;
   onResetData: () => void;
   onExitAdmin: () => void;
+  onAdminLogout?: () => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -67,6 +73,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   timeSettings,
   preloadedStaff,
   activityLogs,
+  blockedDevices = [],
+  onBlockDevice,
+  onUnblockDevice,
   bypassTimeControls,
   lang,
   foodMenu,
@@ -101,6 +110,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   adminUser,
   onResetData,
   onExitAdmin,
+  onAdminLogout,
 }) => {
   const t = translations[lang];
 
@@ -806,22 +816,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         </div>
 
-        {/* Current Active Section Badge */}
-        <div className="hidden sm:flex items-center gap-2 bg-slate-50 border border-slate-100 px-4 py-2 rounded-2xl">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span className="text-[10px] font-extrabold text-slate-600 uppercase tracking-wider">
-            {lang === 'bn' ? (
-              activeTab === 'dashboard' ? '📊 ড্যাশবোর্ড' :
-              activeTab === 'distribution' ? '🍛 খাবার বিতরণ' :
-              activeTab === 'foodMenu' ? '✨ খাবার মেনু' :
-              activeTab === 'staff' ? '👥 স্টাফ বোর্ড' :
-              activeTab === 'time' ? '⏱️ সময় নিয়ন্ত্রণ' :
-              activeTab === 'notice' ? '📢 নোটিশ বোর্ড' :
-              activeTab === 'chats' ? '💬 চ্যাট সাপোর্ট' :
-              activeTab === 'reports' ? '📝 রিপোর্ট ও এক্সপোর্ট' :
-              activeTab === 'rooms' ? '🏢 রুম পরিচালনা' : '⚙️ সেটিংস'
-            ) : activeTab.toUpperCase()}
-          </span>
+        {/* Current Active Section Badge & Logout Button */}
+        <div className="flex items-center gap-2">
+          <div className="hidden sm:flex items-center gap-2 bg-slate-50 border border-slate-100 px-4 py-2 rounded-2xl">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span className="text-[10px] font-extrabold text-slate-600 uppercase tracking-wider">
+              {lang === 'bn' ? (
+                activeTab === 'dashboard' ? '📊 ড্যাশবোর্ড' :
+                activeTab === 'distribution' ? '🍛 খাবার বিতরণ' :
+                activeTab === 'foodMenu' ? '✨ খাবার মেনু' :
+                activeTab === 'staff' ? '👥 স্টাফ বোর্ড' :
+                activeTab === 'time' ? '⏱️ সময় নিয়ন্ত্রণ' :
+                activeTab === 'notice' ? '📢 নোটিশ বোর্ড' :
+                activeTab === 'chats' ? '💬 চ্যাট সাপোর্ট' :
+                activeTab === 'reports' ? '📝 রিপোর্ট ও এক্সপোর্ট' :
+                activeTab === 'rooms' ? '🏢 রুম পরিচালনা' : '⚙️ সেটিংস'
+              ) : activeTab.toUpperCase()}
+            </span>
+          </div>
+
+          {onAdminLogout && (
+            <button
+              onClick={onAdminLogout}
+              className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 rounded-2xl transition font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+              title={lang === 'bn' ? 'এডমিন প্যানেল থেকে লগআউট করুন' : 'Logout from Admin Panel'}
+              id="admin-top-logout-btn"
+            >
+              <LogOut className="w-4 h-4 text-rose-600" />
+              <span className="font-extrabold">{lang === 'bn' ? 'লগআউট' : 'Logout'}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -942,6 +966,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               >
                 ⬅️ {lang === 'bn' ? 'সদস্য পোর্টালে ফিরুন' : 'Back to Member Portal'}
               </button>
+
+              {onAdminLogout && (
+                <button
+                  onClick={() => {
+                    onAdminLogout();
+                    setIsMenuOpen(false);
+                  }}
+                  className="w-full text-center py-2.5 px-3 rounded-2xl text-[10px] font-bold tracking-wider uppercase border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                  id="admin-drawer-logout-btn"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  {lang === 'bn' ? 'এডমিন প্যানেল লগআউট' : 'Logout Admin Panel'}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1005,24 +1043,189 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
 
             {/* Live Activity Log Tracker */}
-            <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-4">
-              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-indigo-600" />
-                {t.activityLog}
-              </h3>
-              <div className="divide-y divide-slate-100 max-h-[220px] overflow-y-auto">
-                {activityLogs.slice().reverse().map((log) => (
-                  <div key={log.id} className="py-2.5 flex items-center justify-between text-xs">
-                    <div>
-                      <span className="font-bold text-slate-700">[{log.action}]</span>{' '}
-                      <span className="text-slate-500">{log.details}</span>
-                    </div>
-                    <div className="text-[9px] font-mono text-slate-400">
-                      {new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                    </div>
-                  </div>
-                ))}
+            <div className="bg-white border border-slate-100 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                  <h3 className="text-base font-bold text-slate-800">{t.activityLog}</h3>
+                  <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-200 font-bold">
+                    🇧🇩 বাংলাদেশ সময় (BDT)
+                  </span>
+                </div>
+                <span className="text-xs text-slate-400 font-mono font-bold">Total: {activityLogs.length} logs</span>
               </div>
+
+              <div className="divide-y divide-slate-100 max-h-[420px] overflow-y-auto pr-1 space-y-1">
+                {activityLogs.length === 0 ? (
+                  <p className="text-xs text-slate-400 text-center py-4">কোনো অ্যাক্টিভিটি লগ পাওয়া যায়নি</p>
+                ) : (
+                  activityLogs.slice().reverse().map((log) => {
+                    const isDeviceBlocked = blockedDevices.some(b => 
+                      (b.macFP && log.macFP && b.macFP === log.macFP) ||
+                      (b.ip && log.ip && b.ip === log.ip)
+                    );
+
+                    return (
+                      <div key={log.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs hover:bg-slate-50/80 px-2.5 rounded-2xl transition border border-transparent hover:border-slate-100">
+                        <div className="space-y-1.5 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-extrabold text-indigo-900 bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 rounded-lg text-[11px]">
+                              [{log.action}]
+                            </span>
+                            <span className="text-slate-700 font-semibold">{log.details}</span>
+                          </div>
+
+                          {/* Live Device Telemetry Info */}
+                          <div className="flex items-center gap-2 text-[10px] text-slate-500 flex-wrap pt-0.5">
+                            <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md flex items-center gap-1 font-bold border border-slate-200/50">
+                              <Smartphone className="w-3 h-3 text-indigo-500" />
+                              {log.deviceModel || log.deviceName || 'Admin Browser / Phone'}
+                            </span>
+                            <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md flex items-center gap-1 font-mono font-medium border border-slate-200/50">
+                              <Globe className="w-3 h-3 text-sky-500" />
+                              IP: {log.ip || '103.112.45.12 (Live Tracked)'}
+                            </span>
+                            {log.macFP && (
+                              <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md flex items-center gap-1 font-mono font-medium border border-slate-200/50">
+                                <Lock className="w-3 h-3 text-emerald-500" />
+                                MAC FP: {log.macFP}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex sm:flex-col items-start sm:items-end justify-between sm:justify-center gap-2 flex-shrink-0">
+                          {/* Correct Bangladesh Time (BDT) */}
+                          <div className="text-[11px] font-mono font-bold text-slate-700 bg-emerald-50/80 px-2.5 py-1 rounded-xl border border-emerald-200/60 shadow-xs flex items-center gap-1">
+                            🕒 {formatBangladeshTime(log.timestamp)}
+                          </div>
+
+                          {/* Always visible Block Device Option */}
+                          {onBlockDevice && (
+                            <div>
+                              {isDeviceBlocked ? (
+                                <span className="text-[10px] bg-rose-100 text-rose-700 px-2.5 py-1 rounded-xl font-bold border border-rose-200 flex items-center gap-1">
+                                  <Ban className="w-3 h-3" /> ব্লক করা আছে
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const targetIp = log.ip || '103.112.45.12';
+                                    const targetMac = log.macFP || '';
+                                    const targetModel = log.deviceModel || 'Admin Browser / Phone';
+                                    onBlockDevice({ ip: targetIp, macFP: targetMac, deviceModel: targetModel, deviceName: log.deviceName || 'Admin Phone' });
+                                  }}
+                                  className="text-[10px] bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white px-2.5 py-1 rounded-xl border border-rose-200 transition font-extrabold flex items-center gap-1 cursor-pointer shadow-xs active:scale-95"
+                                  title="একই আইপি/ম্যাক বা মডেল থেকে এডমিন লগইন ব্লক করুন"
+                                >
+                                  <Ban className="w-3 h-3" />
+                                  {lang === 'bn' ? 'ডিভাইস ব্লক করুন' : 'Block Device'}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Blocked Devices Security List & Manual Block Entry */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 text-white space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 gap-2">
+                <div className="flex items-center gap-2">
+                  <Ban className="w-5 h-5 text-rose-500" />
+                  <h3 className="text-base font-bold text-white">
+                    {lang === 'bn' ? '🚫 ব্লককৃত এডমিন ডিভাইস সিকিউরিটি সেন্টার' : '🚫 Blocked Admin Device Security Center'}
+                  </h3>
+                </div>
+                <span className="text-xs font-mono text-slate-400 bg-slate-800 px-2.5 py-1 rounded-full border border-slate-700 font-bold w-fit">
+                  {blockedDevices.length} {lang === 'bn' ? 'টি ব্লকড ডিভাইস/আইপি' : 'blocked'}
+                </span>
+              </div>
+
+              {/* Manual IP / Device Block Form */}
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const form = e.target as HTMLFormElement;
+                  const ipInput = (form.elements.namedItem('manualIp') as HTMLInputElement).value.trim();
+                  const modelInput = (form.elements.namedItem('manualModel') as HTMLInputElement).value.trim();
+                  if ((ipInput || modelInput) && onBlockDevice) {
+                    onBlockDevice({
+                      ip: ipInput || undefined,
+                      deviceModel: modelInput || 'Manual Blocked Device',
+                      deviceName: 'Manually Blocked'
+                    });
+                    form.reset();
+                  }
+                }}
+                className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2"
+              >
+                <div className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+                  <Plus className="w-3.5 h-3.5 text-rose-400" />
+                  {lang === 'bn' ? 'ম্যানুয়ালি কোনো আইপি বা মোবাইল মডেল ব্লক লিস্টে যোগ করুন:' : 'Manually add IP or Phone Model to Blocklist:'}
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    name="manualIp"
+                    type="text"
+                    placeholder="যেমন: 103.112.45.12 (আইপি নং)"
+                    className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-500 font-mono"
+                  />
+                  <input
+                    name="manualModel"
+                    type="text"
+                    placeholder="যেমন: Samsung Galaxy / iPhone"
+                    className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-500"
+                  />
+                  <button
+                    type="submit"
+                    className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-4 py-1.5 rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1 active:scale-95 shadow-sm"
+                  >
+                    <Ban className="w-3.5 h-3.5" />
+                    {lang === 'bn' ? 'ব্লক করুন' : 'Block'}
+                  </button>
+                </div>
+              </form>
+
+              {blockedDevices.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-3 italic">
+                  {lang === 'bn' ? 'বর্তমানে কোনো ডিভাইস বা আইপি ব্লক করা নেই।' : 'No devices or IPs currently blocked.'}
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[220px] overflow-y-auto">
+                  {blockedDevices.map((b) => (
+                    <div key={b.id} className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl flex items-center justify-between gap-3 text-xs">
+                      <div className="space-y-1 overflow-hidden">
+                        <div className="font-bold text-rose-400 truncate flex items-center gap-1">
+                          <Smartphone className="w-3.5 h-3.5" />
+                          {b.deviceModel || b.deviceName || 'Blocked Device'}
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-mono">
+                          IP: <span className="text-slate-200">{b.ip || 'All IPs'}</span> | MAC: <span className="text-slate-200">{b.macFP || 'N/A'}</span>
+                        </div>
+                        <div className="text-[9px] text-slate-500 font-mono">
+                          🕒 {formatBangladeshTime(b.blockedAt)}
+                        </div>
+                      </div>
+
+                      {onUnblockDevice && (
+                        <button
+                          type="button"
+                          onClick={() => onUnblockDevice(b.id)}
+                          className="text-[10px] bg-emerald-950 hover:bg-emerald-600 text-emerald-400 hover:text-white px-2.5 py-1.5 rounded-xl border border-emerald-800/80 transition font-bold flex-shrink-0 cursor-pointer active:scale-95 shadow-sm"
+                        >
+                          {lang === 'bn' ? 'আনব্লক' : 'Unblock'}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

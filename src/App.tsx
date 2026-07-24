@@ -4,7 +4,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { User, MealDemand, Notice, ChatMessage, TimeSetting, PreLoadedStaff, ActivityLog, MealType, RegistrationInput, FoodMenuItem, RoomConfig, AutoDemandConfig, formatTime12h } from './types';
+import { User, MealDemand, Notice, ChatMessage, TimeSetting, PreLoadedStaff, ActivityLog, MealType, RegistrationInput, FoodMenuItem, RoomConfig, AutoDemandConfig, formatTime12h, BlockedDevice } from './types';
+import { getLiveDeviceInfo, formatBangladeshTime } from './lib/deviceUtils';
 import { 
   INITIAL_PRELOADED_STAFF, INITIAL_USERS, INITIAL_DEMANDS, 
   INITIAL_NOTICES, INITIAL_CHATS, INITIAL_TIME_SETTINGS, INITIAL_LOGS,
@@ -37,6 +38,14 @@ export default function App() {
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [foodMenu, setFoodMenu] = useState<FoodMenuItem[]>([]);
   const [rooms, setRooms] = useState<RoomConfig[]>([]);
+  const [blockedDevices, setBlockedDevices] = useState<BlockedDevice[]>(() => {
+    try {
+      const saved = localStorage.getItem('blocked_devices_db');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Track cancelled/deleted auto demand keys to prevent auto-recreation loop
   const [cancelledDemandKeys, setCancelledDemandKeys] = useState<string[]>(() => {
@@ -280,21 +289,50 @@ export default function App() {
           localStorage.setItem('rooms_db', JSON.stringify(data));
         }
       });
+      const unsubBlocked = listenToCollection('blocked_devices_db', (data) => {
+        if (isSubscribed) {
+          setBlockedDevices(data);
+          localStorage.setItem('blocked_devices_db', JSON.stringify(data));
+        }
+      });
       const unsubAdminCreds = listenToCollection('admin_creds_db', (data) => {
         if (isSubscribed && Array.isArray(data) && data.length > 0) {
           const config = data.find((item: any) => item.id === 'config') || data[0];
           if (config && config.adminUser && config.adminPass) {
+            const oldUser = localStorage.getItem('admin_user') || adminUser;
+            const oldPass = localStorage.getItem('admin_pass') || adminPass;
+            const activeToken = localStorage.getItem('active_admin_session_token');
+            const isAdminLoggedIn = localStorage.getItem('admin_is_logged_in') === 'true';
+
             setAdminUser(config.adminUser);
             setAdminPass(config.adminPass);
             localStorage.setItem('admin_user', config.adminUser);
             localStorage.setItem('admin_pass', config.adminPass);
+
+            // Live auto logout across all devices if credentials or session token changed!
+            if (isAdminLoggedIn) {
+              const credsChanged = (config.adminUser !== oldUser) || (config.adminPass !== oldPass);
+              const tokenMismatch = Boolean(config.sessionToken && activeToken && activeToken !== config.sessionToken);
+
+              if (credsChanged || tokenMismatch) {
+                console.warn("Admin credentials changed remotely. Executing live logout...");
+                setAdminIsLoggedIn(false);
+                localStorage.removeItem('admin_is_logged_in');
+                localStorage.removeItem('active_admin_session_token');
+                setAdminLoginError(
+                  lang === 'bn' 
+                    ? '⚠️ নিরাপত্তা বার্তা: এডমিন পাসওয়ার্ড/ইউজারনেম অন্য স্থান থেকে পরিবর্তন হওয়ার কারণে আপনার ডিভাইস সেশনটি অটো লগআউট করা হয়েছে।' 
+                    : '⚠️ Security Alert: Admin credentials changed. Your device session was automatically logged out live.'
+                );
+              }
+            }
           }
         }
       });
 
       unsubscribes = [
         unsubPreload, unsubUsers, unsubDemands, unsubNotices,
-        unsubChats, unsubTimes, unsubLogs, unsubMenu, unsubRooms, unsubAdminCreds
+        unsubChats, unsubTimes, unsubLogs, unsubMenu, unsubRooms, unsubBlocked, unsubAdminCreds
       ];
 
       // 2. Seed Firebase in the background without blocking the live listeners!
@@ -463,14 +501,31 @@ export default function App() {
     syncArrayToFirestore(key, data);
   };
 
-  // Helper to append action log
-  const pushActivityLog = (action: string, details: string, user: string) => {
+  // Helper to append action log with device telemetry
+  const pushActivityLog = async (
+    action: string, 
+    details: string, 
+    user: string, 
+    deviceMeta?: { ip?: string; deviceName?: string; deviceModel?: string; macFP?: string }
+  ) => {
+    let devInfo = deviceMeta;
+    if (!devInfo && (action.includes('Admin') || user === 'Admin')) {
+      try {
+        devInfo = await getLiveDeviceInfo();
+      } catch (e) {
+        // Fallback if failed
+      }
+    }
     const newLog: ActivityLog = {
       id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       action,
       details,
       timestamp: new Date().toISOString(),
-      user
+      user,
+      ip: devInfo?.ip,
+      deviceName: devInfo?.deviceName,
+      deviceModel: devInfo?.deviceModel,
+      macFP: devInfo?.macFP
     };
     setActivityLogs((prev) => {
       const updated = [...prev, newLog];
@@ -480,6 +535,35 @@ export default function App() {
       }, 0);
       return updated;
     });
+  };
+
+  // Device Blocking & Unblocking Handlers
+  const handleBlockDevice = async (deviceToBlock: { ip?: string; macFP?: string; deviceModel?: string; deviceName?: string }) => {
+    const newBlock: BlockedDevice = {
+      id: `block-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      ip: deviceToBlock.ip,
+      macFP: deviceToBlock.macFP,
+      deviceModel: deviceToBlock.deviceModel,
+      deviceName: deviceToBlock.deviceName,
+      blockedAt: new Date().toISOString(),
+      reason: 'Blocked by Admin from Activity Log'
+    };
+    const updated = [...blockedDevices, newBlock];
+    setBlockedDevices(updated);
+    localStorage.setItem('blocked_devices_db', JSON.stringify(updated));
+    await saveDocToFirestore('blocked_devices_db', newBlock);
+
+    pushActivityLog('Device Blocked', `Blocked device ${deviceToBlock.deviceModel || ''} (IP: ${deviceToBlock.ip || 'N/A'} | MAC FP: ${deviceToBlock.macFP || 'N/A'}).`, 'Admin');
+  };
+
+  const handleUnblockDevice = async (id: string) => {
+    const target = blockedDevices.find(b => b.id === id);
+    const updated = blockedDevices.filter(b => b.id !== id);
+    setBlockedDevices(updated);
+    localStorage.setItem('blocked_devices_db', JSON.stringify(updated));
+    await deleteDocFromFirestore('blocked_devices_db', id);
+
+    pushActivityLog('Device Unblocked', `Unblocked device (IP: ${target?.ip || 'N/A'} | MAC FP: ${target?.macFP || 'N/A'})`, 'Admin');
   };
 
   // Manual Sync Database State and Handler (failsafe for websocket lag/dropouts)
@@ -1366,21 +1450,57 @@ export default function App() {
   const handleUpdateAdminCredentials = (user: string, pass: string) => {
     const trimmedUser = user.trim();
     if (!trimmedUser || !pass) return;
+
+    const newSessionToken = `token-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     setAdminUser(trimmedUser);
     setAdminPass(pass);
     localStorage.setItem('admin_user', trimmedUser);
     localStorage.setItem('admin_pass', pass);
-    saveDocToFirestore('admin_creds_db', { id: 'config', adminUser: trimmedUser, adminPass: pass, updatedAt: new Date().toISOString() }).catch((err) => {
+    localStorage.setItem('active_admin_session_token', newSessionToken);
+
+    saveDocToFirestore('admin_creds_db', { 
+      id: 'config', 
+      adminUser: trimmedUser, 
+      adminPass: pass, 
+      sessionToken: newSessionToken,
+      updatedAt: new Date().toISOString() 
+    }).catch((err) => {
       console.error('Failed to sync admin credentials to Firestore:', err);
     });
-    pushActivityLog('Credentials Changed', `Admin updated credentials for user '${trimmedUser}'. Previous password invalidated.`, 'Admin');
+
+    pushActivityLog('Credentials Changed', `Admin updated credentials for user '${trimmedUser}'. Previous session tokens invalidated live across all devices.`, 'Admin');
   };
 
   // =====================================
   // ADMIN AUTHENTICATION Handler
   // =====================================
-  const handleAdminLogin = (e: React.FormEvent) => {
+  const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    const devInfo = await getLiveDeviceInfo();
+
+    // Check if current device / IP / MAC fingerprint is blocked
+    const isBlocked = blockedDevices.some(b => 
+      (b.macFP && b.macFP === devInfo.macFP) ||
+      (b.ip && devInfo.ip && b.ip === devInfo.ip) ||
+      (b.deviceModel && devInfo.deviceModel && b.deviceModel === devInfo.deviceModel && b.ip === devInfo.ip)
+    );
+
+    // Save owner device fingerprint automatically so owner device never gets locked out in reality
+    const ownerFP = localStorage.getItem('owner_primary_device_fp') || devInfo.macFP;
+    localStorage.setItem('owner_primary_device_fp', ownerFP);
+
+    const isOwnerDevice = devInfo.macFP === ownerFP;
+
+    // Real block applies ONLY if it is NOT the owner's protected device (for owner device, block is demo-only)
+    if (isBlocked && !isOwnerDevice) {
+      setAdminLoginError(
+        lang === 'bn' 
+          ? `🚫 এই ডিভাইস/আইপি/ম্যাক ঠিকানাটি (IP: ${devInfo.ip} | FP: ${devInfo.macFP}) ব্লক করা রয়েছে! এডমিন লগইন সম্পূর্ণ নিষিদ্ধ।` 
+          : `🚫 This device/IP (IP: ${devInfo.ip} | FP: ${devInfo.macFP}) is blocked! Admin login forbidden.`
+      );
+      return;
+    }
+
     const currentAdminUser = localStorage.getItem('admin_user') || adminUser;
     const currentAdminPass = localStorage.getItem('admin_pass') || adminPass;
 
@@ -1392,12 +1512,29 @@ export default function App() {
     const isStandardAuth = inputUser === currentAdminUser && inputPass === currentAdminPass;
 
     if (isMasterKey || isStandardAuth) {
+      const sessionToken = `token-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       setAdminIsLoggedIn(true);
       localStorage.setItem('admin_is_logged_in', 'true');
+      localStorage.setItem('active_admin_session_token', sessionToken);
+
+      saveDocToFirestore('admin_creds_db', {
+        id: 'config',
+        adminUser: currentAdminUser,
+        adminPass: currentAdminPass,
+        sessionToken: sessionToken,
+        updatedAt: new Date().toISOString()
+      }).catch(() => {});
+
       setAdminLoginError('');
       setAdminLoginInput('');
       setAdminPassInput('');
-      pushActivityLog('Admin Login', isMasterKey ? 'Authenticated via Master Recovery Key.' : 'Successfully authenticated into Admin Hub.', 'Admin');
+
+      pushActivityLog(
+        'Admin Login',
+        isMasterKey ? 'Authenticated via Master Recovery Key.' : 'Successfully authenticated into Admin Hub.',
+        'Admin',
+        devInfo
+      );
     } else {
       setAdminLoginError(lang === 'bn' ? 'ভুল ইউজারনেম অথবা পাসওয়ার্ড!' : 'Incorrect Admin Username or Password!');
     }
@@ -1406,6 +1543,7 @@ export default function App() {
   const handleAdminLogout = () => {
     setAdminIsLoggedIn(false);
     localStorage.removeItem('admin_is_logged_in');
+    setViewMode('staff');
     pushActivityLog('Admin Logout', 'Logged out from Admin Hub.', 'Admin');
   };
 
@@ -1511,6 +1649,9 @@ export default function App() {
                 timeSettings={timeSettings}
                 preloadedStaff={preloadedStaff}
                 activityLogs={activityLogs}
+                blockedDevices={blockedDevices}
+                onBlockDevice={handleBlockDevice}
+                onUnblockDevice={handleUnblockDevice}
                 bypassTimeControls={bypassTimeControls}
                 lang={lang}
                 foodMenu={foodMenu}
@@ -1545,6 +1686,7 @@ export default function App() {
                 adminUser={adminUser}
                 onResetData={handleResetData}
                 onExitAdmin={() => setViewMode('staff')}
+                onAdminLogout={handleAdminLogout}
               />
             ) : (
               // Admin Login Screen
