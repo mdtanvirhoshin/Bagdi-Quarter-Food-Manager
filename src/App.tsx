@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { User, MealDemand, Notice, ChatMessage, TimeSetting, PreLoadedStaff, ActivityLog, MealType, RegistrationInput, FoodMenuItem, RoomConfig, AutoDemandConfig } from './types';
+import { User, MealDemand, Notice, ChatMessage, TimeSetting, PreLoadedStaff, ActivityLog, MealType, RegistrationInput, FoodMenuItem, RoomConfig, AutoDemandConfig, formatTime12h } from './types';
 import { 
   INITIAL_PRELOADED_STAFF, INITIAL_USERS, INITIAL_DEMANDS, 
   INITIAL_NOTICES, INITIAL_CHATS, INITIAL_TIME_SETTINGS, INITIAL_LOGS,
@@ -400,7 +400,7 @@ export default function App() {
         const hasExistingDemand = isCancelled || demands.some((d) => 
           d.date === todayStr && 
           d.mealType === meal && 
-          (d.selectedStaffIds.map(sid => sid.toLowerCase()).includes(u.staffId.toLowerCase()) || d.roomNumber === u.roomNumber)
+          d.selectedStaffIds.map(sid => sid.toLowerCase()).includes(u.staffId.toLowerCase())
         );
 
         if (!hasExistingDemand) {
@@ -1075,7 +1075,7 @@ export default function App() {
       }, 0);
       return updated;
     });
-    pushActivityLog('Schedule Timer Updated', `${mealType.toUpperCase()} hours modified to ${startTime} - ${endTime}.`, 'Admin');
+    pushActivityLog('Schedule Timer Updated', `${mealType.toUpperCase()} hours modified to ${formatTime12h(startTime)} - ${formatTime12h(endTime)}.`, 'Admin');
   };
 
   const handleAddNotice = (title: string, content: string) => {
@@ -1195,13 +1195,23 @@ export default function App() {
     pushActivityLog('Demand Deleted', `Deleted meal demand record.`, 'User');
   };
 
-  const handleCancelRoomDemand = (mealType: MealType, roomNumber: string) => {
+  const handleCancelRoomDemand = (mealType: MealType, roomNumber: string, targetStaffId?: string) => {
     const todayStr = new Date().toISOString().split('T')[0];
     const demandsToCancel = demands.filter(
-      (d) => d.roomNumber === roomNumber && d.mealType === mealType && d.date === todayStr
+      (d) =>
+        d.roomNumber === roomNumber &&
+        d.mealType === mealType &&
+        d.date === todayStr &&
+        d.status !== 'approved' &&
+        d.status !== 'served' &&
+        (!targetStaffId ||
+          d.selectedStaffIds.some((sid) => sid.toLowerCase() === targetStaffId.toLowerCase()) ||
+          d.submittedBy?.toLowerCase() === targetStaffId.toLowerCase())
     );
 
-    const keys = [`room:${roomNumber}:${mealType}:${todayStr}`];
+    if (demandsToCancel.length === 0) return;
+
+    const keys: string[] = [`room:${roomNumber}:${mealType}:${todayStr}`];
     demandsToCancel.forEach((d) => {
       d.selectedStaffIds.forEach((sid) => {
         keys.push(`staff:${sid.toLowerCase()}:${mealType}:${todayStr}`);
@@ -1209,12 +1219,9 @@ export default function App() {
     });
     addCancelledKeys(keys);
 
-    if (demandsToCancel.length === 0) return;
-
     setDemands((prev) => {
-      const updated = prev.filter(
-        (d) => !(d.roomNumber === roomNumber && d.mealType === mealType && d.date === todayStr)
-      );
+      const cancelIds = new Set(demandsToCancel.map((d) => d.id));
+      const updated = prev.filter((d) => !cancelIds.has(d.id));
       setTimeout(() => {
         localStorage.setItem('demands_db', JSON.stringify(updated));
       }, 0);
@@ -1227,7 +1234,7 @@ export default function App() {
 
     pushActivityLog(
       'Demand Cancelled',
-      `Room ${roomNumber} cancelled ${mealType.toUpperCase()} demand for ${todayStr}`,
+      `Demand for ${targetStaffId || ('Room ' + roomNumber)} (${mealType.toUpperCase()}) cancelled for ${todayStr}`,
       loggedInUser ? loggedInUser.name : 'Staff'
     );
   };

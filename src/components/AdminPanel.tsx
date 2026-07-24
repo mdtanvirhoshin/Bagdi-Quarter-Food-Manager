@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { User, MealDemand, Notice, ChatMessage, TimeSetting, PreLoadedStaff, ActivityLog, MealType, FoodMenuItem, RoomConfig } from '../types';
+import { User, MealDemand, Notice, ChatMessage, TimeSetting, PreLoadedStaff, ActivityLog, MealType, FoodMenuItem, RoomConfig, formatTime12h } from '../types';
 import { translations, Language } from '../translations';
 import { ChatPanel } from './ChatPanel';
 import { 
@@ -2194,38 +2194,57 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
             <div className="space-y-4 max-w-xl">
               <div className="text-xs font-black text-slate-700 uppercase tracking-wider">
-                {lang === 'bn' ? 'মিলের সময়সূচী (বাংলাদেশ সময়):' : 'Meal Time Schedule (Bangladesh Time):'}
+                {lang === 'bn' ? 'মিলের সময়সূচী (বাংলাদেশ সময় - AM/PM 12H ফরম্যাটে):' : 'Meal Time Schedule (12-Hour AM/PM Format):'}
               </div>
 
               {(['breakfast', 'lunch', 'dinner'] as MealType[]).map((mType) => {
                 const setting = timeSettings.find((s) => s.mealType === mType) || { id: mType, mealType: mType, startTime: '06:00', endTime: '08:00' };
                 return (
-                  <div key={mType} className="bg-slate-50 border border-slate-200 rounded-2xl p-4 grid grid-cols-1 md:grid-cols-3 items-center gap-4">
-                    <span className="font-extrabold uppercase text-xs text-indigo-700 flex items-center gap-1.5">
-                      {mType === 'breakfast' && '🍳'}
-                      {mType === 'lunch' && '🍛'}
-                      {mType === 'dinner' && '🍲'}
-                      {t[mType]}
-                    </span>
-                    
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-slate-400 font-bold">Start:</span>
-                      <input
-                        type="time"
-                        value={setting.startTime}
-                        onChange={(e) => onAddTimeSetting(mType, e.target.value, setting.endTime)}
-                        className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold focus:outline-none focus:border-indigo-500"
-                      />
+                  <div key={mType} className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2">
+                    <div className="grid grid-cols-1 md:grid-cols-3 items-center gap-4">
+                      <span className="font-extrabold uppercase text-xs text-indigo-700 flex items-center gap-1.5">
+                        {mType === 'breakfast' && '🍳'}
+                        {mType === 'lunch' && '🍛'}
+                        {mType === 'dinner' && '🍲'}
+                        {t[mType]}
+                      </span>
+                      
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-400 font-bold">Start:</span>
+                          <input
+                            type="time"
+                            value={setting.startTime}
+                            onChange={(e) => onAddTimeSetting(mType, e.target.value, setting.endTime)}
+                            className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold focus:outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                        <span className="text-[10px] text-indigo-600 font-black pl-9">
+                          {formatTime12h(setting.startTime)}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-400 font-bold">End:</span>
+                          <input
+                            type="time"
+                            value={setting.endTime}
+                            onChange={(e) => onAddTimeSetting(mType, setting.startTime, e.target.value)}
+                            className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold focus:outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                        <span className="text-[10px] text-indigo-600 font-black pl-8">
+                          {formatTime12h(setting.endTime)}
+                        </span>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-slate-400 font-bold">End:</span>
-                      <input
-                        type="time"
-                        value={setting.endTime}
-                        onChange={(e) => onAddTimeSetting(mType, setting.startTime, e.target.value)}
-                        className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold focus:outline-none focus:border-indigo-500"
-                      />
+                    <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] font-bold text-slate-600">
+                      <span>{lang === 'bn' ? 'নির্ধারিত সময়সূচী:' : 'Configured Schedule:'}</span>
+                      <span className="bg-indigo-100 text-indigo-900 px-2.5 py-0.5 rounded-md font-mono font-black">
+                        {formatTime12h(setting.startTime)} — {formatTime12h(setting.endTime)}
+                      </span>
                     </div>
                   </div>
                 );

@@ -84,6 +84,20 @@ export interface TimeSetting {
   endTime: string;   // "HH:MM" 24h
 }
 
+export function formatTime12h(timeStr: string | undefined): string {
+  if (!timeStr) return '';
+  const parts = timeStr.trim().split(':');
+  if (parts.length < 2) return timeStr;
+  let h = parseInt(parts[0], 10);
+  const m = parts[1].padStart(2, '0');
+  if (isNaN(h)) return timeStr;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12;
+  if (h === 0) h = 12;
+  const hStr = h.toString().padStart(2, '0');
+  return `${hStr}:${m} ${ampm}`;
+}
+
 export interface ChatMessage {
   id: string;
   senderId: string; // User ID or 'admin'

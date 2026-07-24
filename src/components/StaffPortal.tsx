@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { User, MealDemand, Notice, ChatMessage, TimeSetting, PreLoadedStaff, MealType, RegistrationInput, FoodMenuItem, RoomConfig, AutoDemandConfig } from '../types';
+import { User, MealDemand, Notice, ChatMessage, TimeSetting, PreLoadedStaff, MealType, RegistrationInput, FoodMenuItem, RoomConfig, AutoDemandConfig, formatTime12h } from '../types';
 import { translations, Language } from '../translations';
 import { ChatPanel } from './ChatPanel';
 import { saveDocToFirestore } from '../lib/firebase';
@@ -34,7 +34,7 @@ interface StaffPortalProps {
   onSendChatMessage: (text: string, receiverId: string) => void;
   onSwitchToAdmin: () => void;
   onUpdateAutoDemand: (userId: string, autoDemand: AutoDemandConfig) => void;
-  onCancelDemand?: (mealType: MealType, roomNumber: string) => void;
+  onCancelDemand?: (mealType: MealType, roomNumber: string, staffId?: string) => void;
 }
 
 export const StaffPortal: React.FC<StaffPortalProps> = ({
@@ -419,21 +419,26 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
     }
   };
 
-  // Check if room is locked for a meal (demands already placed)
+  // Check if current user has an active demand for a meal
   const todayStr = new Date().toISOString().split('T')[0];
-  const getActiveRoomDemands = (mealType: MealType) => {
+  const getActiveUserDemands = (mealType: MealType) => {
     if (!currentUser) return [];
+    const cSid = currentUser.staffId.toLowerCase();
     return demands.filter(
       (d) =>
-        d.roomNumber === currentUser.roomNumber &&
         d.mealType === mealType &&
         d.date === todayStr &&
-        d.status !== 'rejected'
+        d.status !== 'rejected' &&
+        (
+          d.selectedStaffIds.some(sid => sid.toLowerCase() === cSid) ||
+          d.submittedBy?.toLowerCase() === cSid ||
+          (d.userId && d.userId === currentUser.id)
+        )
     );
   };
 
-  const isRoomLocked = (mealType: MealType) => {
-    return getActiveRoomDemands(mealType).length > 0;
+  const isUserDemandLocked = (mealType: MealType) => {
+    return getActiveUserDemands(mealType).length > 0;
   };
 
   // Get other room members living in the same room
@@ -1762,7 +1767,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                     >
                       <div className="font-extrabold text-[11px] truncate">{labels[m]}</div>
                       <div className="font-mono text-[10px] text-amber-300 font-bold mt-0.5">
-                        {s ? `${s.startTime} - ${s.endTime}` : 'N/A'}
+                        {s ? `${formatTime12h(s.startTime)} - ${formatTime12h(s.endTime)}` : 'N/A'}
                       </div>
                       <div className="mt-1">
                         {isMealActive ? (
@@ -1814,8 +1819,8 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                     </div>
 
                     <div className="text-right flex-shrink-0">
-                      <span className="text-[9px] font-mono bg-white/10 px-2 py-1 rounded-lg border border-white/10 block font-bold">
-                        {setting ? `${setting.startTime} - ${setting.endTime}` : ''}
+                      <span className="text-[9px] sm:text-[10px] font-mono bg-white/10 px-2 py-1 rounded-lg border border-white/10 block font-extrabold text-amber-300">
+                        {setting ? `${formatTime12h(setting.startTime)} - ${formatTime12h(setting.endTime)}` : ''}
                       </span>
                     </div>
                   </div>
@@ -1826,7 +1831,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
 
 
             {/* CLOSED MEAL NOTICE WHEN NOT IN TIME WINDOW */}
-            {!isRoomLocked(activeMealTab) && !isTimeActive(activeMealTab) && (
+            {!isUserDemandLocked(activeMealTab) && !isTimeActive(activeMealTab) && (
               <div className="border border-rose-200 bg-rose-50/70 rounded-2xl p-5 text-center space-y-2.5 shadow-sm" id="time-closed-notice">
                 <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 mx-auto border border-rose-200">
                   <Clock className="w-5 h-5 animate-pulse" />
@@ -1838,25 +1843,28 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                 </div>
                 <p className="text-[11px] text-rose-700 max-w-md mx-auto leading-relaxed font-medium">
                   {lang === 'bn'
-                    ? `অ্যাডমিন সেট করা নির্ধারিত সময়ের মধ্যে (${timeSettings.find(s => s.mealType === activeMealTab)?.startTime || '00:00'} থেকে ${timeSettings.find(s => s.mealType === activeMealTab)?.endTime || '00:00'}) ডিমান্ড জমা দিতে পারবেন। অটো ডিমান্ড চালু থাকলে নির্দিষ্ট সময়ে স্বয়ংক্রিয়ভাবে ডিমান্ড জমা হবে।`
-                    : `You can only submit demands during the admin set schedule (${timeSettings.find(s => s.mealType === activeMealTab)?.startTime} - ${timeSettings.find(s => s.mealType === activeMealTab)?.endTime}). Enable Auto Demand for automated submission.`}
+                    ? `অ্যাডমিন সেট করা নির্ধারিত সময়ের মধ্যে (${formatTime12h(timeSettings.find(s => s.mealType === activeMealTab)?.startTime)} থেকে ${formatTime12h(timeSettings.find(s => s.mealType === activeMealTab)?.endTime)}) ডিমান্ড জমা দিতে পারবেন। অটো ডিমান্ড চালু থাকলে নির্দিষ্ট সময়ে স্বয়ংক্রিয়ভাবে ডিমান্ড জমা হবে।`
+                    : `You can only submit demands during the admin set schedule (${formatTime12h(timeSettings.find(s => s.mealType === activeMealTab)?.startTime)} - ${formatTime12h(timeSettings.find(s => s.mealType === activeMealTab)?.endTime)}). Enable Auto Demand for automated submission.`}
                 </p>
               </div>
             )}
 
             {/* Locked vs Open Demand Logic */}
-            {isRoomLocked(activeMealTab) ? (
+            {isUserDemandLocked(activeMealTab) ? (
               (() => {
-                const activeRoomDemands = getActiveRoomDemands(activeMealTab);
-                const isPending = activeRoomDemands.some(d => d.status === 'pending');
-                const isApproved = !isPending && activeRoomDemands.some(d => d.status === 'approved');
-                const isServed = !isPending && activeRoomDemands.every(d => d.status === 'served');
+                const activeUserDemands = getActiveUserDemands(activeMealTab);
+                const isPending = activeUserDemands.some(d => d.status === 'pending');
+                const isApproved = !isPending && activeUserDemands.some(d => d.status === 'approved');
+                const isServed = !isPending && activeUserDemands.every(d => d.status === 'served');
+                
+                const hasAdminApprovedOrServed = activeUserDemands.some(d => d.status === 'approved' || d.status === 'served');
+                const canCancelDemand = !hasAdminApprovedOrServed && (isTimeActive(activeMealTab) || bypassTimeControls);
                 
                 const uniqueDemandedStaffIds: string[] = Array.from(
-                  new Set(activeRoomDemands.flatMap(d => d.selectedStaffIds))
+                  new Set(activeUserDemands.flatMap(d => d.selectedStaffIds))
                 );
 
-                const representativeDemand = activeRoomDemands[0];
+                const representativeDemand = activeUserDemands[0];
                 
                 return (
                   <div className="border border-orange-100 bg-orange-50/10 rounded-2xl p-6 text-center space-y-4 shadow-sm relative overflow-hidden">
@@ -1888,21 +1896,21 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                           : (lang === 'bn' ? '⏳ খাবার ডিমান্ড অনুমোদন পেন্ডিং' : '⏳ Food Demand Pending Admin Approval')}
                       </h4>
                       <p className="text-[11px] text-slate-400">
-                        {lang === 'bn' ? `আপনার রুম ${currentUser.roomNumber} এর ডিমান্ড লক করা হয়েছে।` : `Demand locked for Room ${currentUser.roomNumber}.`}
+                        {lang === 'bn' ? `${currentUser.name} (আইডি: ${currentUser.staffId}) - এর ডিমান্ড জমা আছে।` : `Demand locked for ${currentUser.name} (ID: ${currentUser.staffId}).`}
                       </p>
                     </div>
 
                     <div className="border-t border-orange-50 pt-4">
                       <div className="text-xs font-bold text-slate-700 mb-3 text-left px-1 flex items-center gap-1.5">
                         <Users className="w-4 h-4 text-orange-500" />
-                        {lang === 'bn' ? 'রুমে খাবার গ্রহণকারী সদস্যদের তালিকা ও স্ট্যাটাস:' : 'Room Members Meal Status:'}
+                        {lang === 'bn' ? 'ডিমান্ডভুক্ত সদস্যদের তালিকা ও স্ট্যাটাস:' : 'Submitted Members Status:'}
                       </div>
 
                       {/* STUNNING VISUAL CARD GRID representing member statuses */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                         {uniqueDemandedStaffIds.map((sid) => {
                           const matchedUser = users.find((u) => u.staffId.toLowerCase() === sid.toLowerCase());
-                          const staffDem = activeRoomDemands.find(d => d.selectedStaffIds.includes(sid));
+                          const staffDem = activeUserDemands.find(d => d.selectedStaffIds.includes(sid));
                           const isStaffServed = staffDem?.status === 'served';
                           const isStaffApproved = staffDem?.status === 'approved';
                           
@@ -1975,17 +1983,17 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                       <span>{lang === 'bn' ? 'তারিখ ও সময়:' : 'Date & Time:'} <strong>{representativeDemand?.timestamp ? `${new Date(representativeDemand.timestamp).toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US')} ${new Date(representativeDemand.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}` : ''}</strong></span>
                     </div>
 
-                    {/* CANCEL DEMAND BUTTON DURING OPEN TIME WINDOW */}
-                    {!isServed && (isTimeActive(activeMealTab) || bypassTimeControls) ? (
+                    {/* CANCEL DEMAND BUTTON CONDITION */}
+                    {canCancelDemand ? (
                       <div className="pt-3 border-t border-orange-100 flex flex-col items-center gap-1.5">
                         <button
                           type="button"
                           onClick={() => {
                             if (window.confirm(lang === 'bn' 
-                              ? 'আপনি কি নিশ্চিত যে এই সময়ের খাবার ডিমান্ড বাতিল করতে চান? বাতিল করলে তা এডমিনের কাছ থেকে ডিলিট হয়ে যাবে।' 
-                              : 'Are you sure you want to cancel this demand? It will be removed from admin view.')) {
+                              ? 'আপনি কি নিশ্চিত যে এই সময়ের খাবার ডিমান্ড বাতিল করতে চান?' 
+                              : 'Are you sure you want to cancel this demand?')) {
                               if (onCancelDemand) {
-                                onCancelDemand(activeMealTab, currentUser.roomNumber);
+                                onCancelDemand(activeMealTab, currentUser.roomNumber, currentUser.staffId);
                                 showToast(lang === 'bn' ? 'ডিমান্ড সফলভাবে বাতিল করা হয়েছে!' : 'Demand cancelled successfully!', 'info');
                               }
                             }
@@ -1996,12 +2004,16 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                           <span>{lang === 'bn' ? 'ডিমান্ড বাতিল করুন (Cancel Demand)' : 'Cancel Meal Demand'}</span>
                         </button>
                         <p className="text-[10px] text-rose-600 font-medium">
-                          {lang === 'bn' ? 'এডমিন সেট করা নির্দিষ্ট সময়ের ভেতর থাকলে ডিমান্ড বাতিল করা যাবে।' : 'Demand can be cancelled during admin set open window.'}
+                          {lang === 'bn' ? 'এডমিন অনুমোদন দেওয়ার পূর্বে এবং নির্দিষ্ট সময়ের মধ্যে থাকলে ডিমান্ড বাতিল করা যাবে।' : 'Demand can be cancelled before admin approval and during open time window.'}
                         </p>
                       </div>
-                    ) : !isServed && (
-                      <div className="pt-2 border-t border-orange-100 text-[10px] text-rose-500 font-medium text-center">
-                        {lang === 'bn' ? '🔒 সময়সীমা শেষ হওয়ায় ডিমান্ড বাতিল করা যাবে না।' : '🔒 Deadline passed; demand cannot be cancelled.'}
+                    ) : hasAdminApprovedOrServed ? (
+                      <div className="pt-2.5 border-t border-orange-100 text-[10px] text-indigo-700 font-bold text-center flex items-center justify-center gap-1.5 bg-indigo-50/50 py-2 rounded-xl">
+                        <span>🔒 {lang === 'bn' ? 'এডমিন খাবার অনুমোদন/বিতরণ করায় ডিমান্ড আর বাতিল করা সম্ভব নয়।' : 'Demand is approved or served by Admin and cannot be cancelled.'}</span>
+                      </div>
+                    ) : (
+                      <div className="pt-2.5 border-t border-orange-100 text-[10px] text-rose-600 font-bold text-center flex items-center justify-center gap-1.5 bg-rose-50/50 py-2 rounded-xl">
+                        <span>🔒 {lang === 'bn' ? 'সময়সীমা শেষ হওয়ায় ডিমান্ড বাতিল করা যাবে না।' : 'Deadline passed; demand cannot be cancelled.'}</span>
                       </div>
                     )}
                   </div>
@@ -2033,14 +2045,35 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                     const registeredUser = users.find(u => u.staffId.toLowerCase() === member.staffId.toLowerCase());
                     const isApprovedUser = registeredUser?.status === 'approved';
 
+                    const isMemberAlreadySubmitted = demands.some(
+                      (d) =>
+                        d.mealType === activeMealTab &&
+                        d.date === todayStr &&
+                        d.status !== 'rejected' &&
+                        d.selectedStaffIds.some(s => s.toLowerCase() === member.staffId.toLowerCase())
+                    );
+
                     return (
                       <button
                         key={member.staffId}
-                        onClick={() => toggleRoomMemberSelection(member.staffId)}
-                        className={`p-3.5 rounded-2xl border text-left flex items-center justify-between transition-all cursor-pointer relative overflow-hidden ${
-                          isSelected
-                            ? 'bg-gradient-to-tr from-orange-600 to-amber-500 border-transparent text-white shadow-lg hover:brightness-105'
-                            : 'bg-slate-50 hover:bg-orange-50/20 border-orange-100/50 text-slate-700'
+                        onClick={() => {
+                          if (isMemberAlreadySubmitted) {
+                            showToast(
+                              lang === 'bn'
+                                ? `${member.name} (ID: ${member.staffId}) - এর ডিমান্ড ইতিমধ্যে জমা দেওয়া রয়েছে!`
+                                : `Demand already submitted for ${member.name}!`,
+                              'info'
+                            );
+                            return;
+                          }
+                          toggleRoomMemberSelection(member.staffId);
+                        }}
+                        className={`p-3.5 rounded-2xl border text-left flex items-center justify-between transition-all relative overflow-hidden ${
+                          isMemberAlreadySubmitted
+                            ? 'bg-slate-100/90 border-slate-200 text-slate-500 cursor-not-allowed opacity-80'
+                            : isSelected
+                            ? 'bg-gradient-to-tr from-orange-600 to-amber-500 border-transparent text-white shadow-lg hover:brightness-105 cursor-pointer'
+                            : 'bg-slate-50 hover:bg-orange-50/20 border-orange-100/50 text-slate-700 cursor-pointer'
                         }`}
                       >
                         <div className="flex items-center gap-3">
@@ -2080,7 +2113,11 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                           </div>
                         </div>
 
-                        {isSelected ? (
+                        {isMemberAlreadySubmitted ? (
+                          <span className="bg-amber-100 text-amber-900 border border-amber-200/80 text-[10px] px-2.5 py-1 rounded-xl font-extrabold flex items-center gap-1">
+                            ✓ {lang === 'bn' ? 'ডিমান্ড জমা আছে' : 'Submitted'}
+                          </span>
+                        ) : isSelected ? (
                           <div className="w-5 h-5 rounded-full bg-white text-orange-600 flex items-center justify-center shadow">
                             <CheckSquare className="w-3.5 h-3.5" />
                           </div>
@@ -2144,23 +2181,26 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
 
             <div className="space-y-3">
               {(['breakfast', 'lunch', 'dinner'] as MealType[]).map((mType) => {
-                const roomDems = demands.filter(
+                const userDems = demands.filter(
                   (d) =>
-                    d.roomNumber === currentUser.roomNumber &&
                     d.mealType === mType &&
                     d.date === todayStr &&
-                    d.status !== 'rejected'
+                    d.status !== 'rejected' &&
+                    (
+                      d.selectedStaffIds.some(sid => sid.toLowerCase() === currentUser.staffId.toLowerCase()) ||
+                      d.submittedBy?.toLowerCase() === currentUser.staffId.toLowerCase()
+                    )
                 );
                 
-                const hasDems = roomDems.length > 0;
+                const hasDems = userDems.length > 0;
                 let statusBg = 'bg-slate-50 border-orange-100/30 text-slate-400';
                 let label = lang === 'bn' ? 'ডিমান্ড দেওয়া হয়নি' : 'No Demand';
                 let colorClass = 'text-slate-400';
 
                 if (hasDems) {
-                  const isAnyPending = roomDems.some(d => d.status === 'pending');
-                  const isAnyApproved = roomDems.some(d => d.status === 'approved');
-                  const isAllServed = roomDems.every(d => d.status === 'served');
+                  const isAnyPending = userDems.some(d => d.status === 'pending');
+                  const isAnyApproved = userDems.some(d => d.status === 'approved');
+                  const isAllServed = userDems.every(d => d.status === 'served');
 
                   if (isAnyPending) {
                     statusBg = 'bg-amber-500/10 border-amber-200 text-amber-800';
@@ -2172,7 +2212,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                     colorClass = 'text-indigo-600';
                   } else if (isAllServed) {
                     statusBg = 'bg-emerald-50 border-emerald-200 text-emerald-800';
-                    const servedDem = roomDems.find(d => d.status === 'served');
+                    const servedDem = userDems.find(d => d.status === 'served');
                     const formatTime = servedDem?.servedAt ? new Date(servedDem.servedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
                     label = lang === 'bn' ? `✅ বিতরণকৃত (${formatTime})` : `✅ Served (${formatTime})`;
                     colorClass = 'text-emerald-600';
@@ -2192,7 +2232,7 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                         <div>
                           <div className={`text-xs font-extrabold uppercase tracking-wider ${colorClass}`}>{t[mType]}</div>
                           <div className="text-[10px] opacity-75 mt-0.5">
-                            {hasDems ? `${lang === 'bn' ? 'ডিমান্ড সদস্য:' : 'Selected:'} ${roomDems.reduce((sum, d) => sum + d.selectedStaffIds.length, 0)} জন` : ''}
+                            {hasDems ? `${lang === 'bn' ? 'ডিমান্ড সদস্য:' : 'Selected:'} ${userDems.reduce((sum, d) => sum + d.selectedStaffIds.length, 0)} জন` : ''}
                           </div>
                         </div>
                       </div>
@@ -2208,13 +2248,13 @@ export const StaffPortal: React.FC<StaffPortalProps> = ({
                     {hasDems && isExpanded && (
                       <div className="bg-white/80 p-3.5 border-t border-orange-50 space-y-2.5 animate-in slide-in-from-top-2 duration-200">
                         <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">
-                          {lang === 'bn' ? 'রুম মেম্বার স্ট্যাটাস:' : 'Room Member Details:'}
+                          {lang === 'bn' ? 'আমার ডিমান্ড স্ট্যাটাস:' : 'My Demand Details:'}
                         </div>
                         
                         <div className="space-y-2">
-                          {roomDems.flatMap(d => d.selectedStaffIds).map((sid) => {
+                          {userDems.flatMap(d => d.selectedStaffIds).map((sid) => {
                             const foundUser = users.find(u => u.staffId.toLowerCase() === sid.toLowerCase());
-                            const staffDem = roomDems.find(d => d.selectedStaffIds.includes(sid));
+                            const staffDem = userDems.find(d => d.selectedStaffIds.includes(sid));
                             const ate = staffDem?.status === 'served';
                             const approved = staffDem?.status === 'approved';
                             
